@@ -367,6 +367,21 @@ async function verifyPostPersisted({ pushId, headers, expectedBody }) {
   console.log(`OK（正文 ${got.chars} 字｜標題 ${got.headings}｜表格 ${got.tableRows} 列｜程式碼 ${got.codeFences} 塊）`)
 }
 
+/**
+ * --channel 接受兩種寫法：cuid（原樣當 channelId 用）或 @handle（先查出 id 再用）。
+ * by-handle 是公開端點，不用帶 token——查錯字或頻道不存在時要講清楚，
+ * 不要讓一個打錯的 handle 靜靜地變成「不分類」送出去。
+ */
+async function resolveChannel(spec) {
+  if (typeof spec !== 'string' || !spec.startsWith('@')) return spec
+  const handle = spec.slice(1)
+  const r = await fetch(`${API_BASE}/v1/makeclass/channels/by-handle/${encodeURIComponent(handle)}`)
+    .catch((e) => die(`連不上 API：${e.message}`))
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok || !j.success) die(`找不到頻道 @${handle}`, '確認 handle 有沒有打對（頻道頁網址 /c/@xxx 那一段）')
+  return j.data.id
+}
+
 async function cmdPost(argv) {
   const args = parseArgsLoose(argv)
   const token = resolveToken(typeof args.token === 'string' ? args.token : null)
@@ -376,13 +391,15 @@ async function cmdPost(argv) {
   const title = typeof args.title === 'string' ? args.title.trim() : ''
   if (!title && typeof args.update !== 'string') die('缺少 --title')
 
+  const channelId = typeof args.channel === 'string' ? await resolveChannel(args.channel) : null
+
   const take = readTake(args.take, args._)
   const articleBody = readTake(args.body, args.take ? [] : args._)
   const body = {
     title,
     ...(typeof args.subtitle === 'string' ? { subtitle: args.subtitle } : {}),
     ...(typeof args.source === 'string' ? { sourceUrl: args.source } : {}),
-    ...(typeof args.channel === 'string' ? { channelId: args.channel } : {}),
+    ...(channelId ? { channelId } : {}),
     ...(take ? { contentSummary: take } : {}),
     ...(articleBody ? { articleBody } : {}),
     ...(args.post ? { contentType: 'post' } : {}),
@@ -396,6 +413,7 @@ async function cmdPost(argv) {
     if (title) patch.title = title
     if (typeof args.subtitle === 'string') patch.subtitle = args.subtitle
     if (articleBody) patch.articleBody = articleBody
+    if (channelId) patch.channelId = channelId
     if (take) patch.contentSummary = take
     if (Object.keys(patch).length === 0) die('--update 沒有指定要改什麼', '至少給 --title / --body / --take 其中一個')
 
@@ -469,7 +487,7 @@ mcpost — 把開發對話或觀點文直接發到 MakeClass（不需要 clone �
 
 devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --token <t>
 post 選項：  --title <t>  --subtitle <t>  --source <url>  --take <文字|檔案|->
-             --body <檔案>  --channel <id>  --post  --update <pushId>  --no-verify
+             --body <檔案>  --channel <id 或 @handle>  --post  --update <pushId>  --no-verify
 
 Token 讀取順序：--token > $MAKECLASS_TOKEN > ~/.makeclass/token
 環境變數 MAKECLASS_API_BASE 可覆寫 API 位址（預設正式站）
