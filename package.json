@@ -1,6 +1,6 @@
 {
   "name": "mcpost",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "把開發對話或觀點文，從任何終端機直接發到 MakeClass——不需要 clone MakeClass 主程式，只需要一支 Personal Access Token。",
   "type": "module",
   "bin": {

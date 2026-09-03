@@ -336,6 +336,37 @@ function parseArgsLoose(argv) {
   return out
 }
 
+/** 送出後回讀比對，抓「API 說成功但東西其實不在／被剝光」。失敗就直接 die，不算成功。 */
+async function verifyPostPersisted({ pushId, headers, expectedBody }) {
+  process.stdout.write('  回讀驗證中… ')
+  let remote = null
+  for (let i = 0; i < 3 && !remote; i++) {
+    if (i) await new Promise((r) => setTimeout(r, 1500))
+    const g = await fetch(`${API_BASE}/v1/makeclass/pusher/${pushId}`, { headers }).catch(() => null)
+    if (g?.ok) remote = (await g.json().catch(() => null))?.data ?? null
+  }
+  if (!remote) {
+    die('回讀失敗：伺服器回報成功，但這篇讀不到，請不要當成已送出。',
+      `${API_BASE}/v1/makeclass/pusher/${pushId} 取不到內容。`)
+  }
+  if (!expectedBody) { console.log('OK（沒有可比對的正文欄位，只確認資料存在）'); return }
+
+  const src = fingerprint(expectedBody)
+  const got = fingerprint(remote.articleBody)
+  const charOk = got.chars >= src.chars * 0.95
+  const diffs = []
+  if (!charOk) diffs.push(`字數 ${src.chars} → ${got.chars}`)
+  for (const k of ['headings', 'tableRows', 'codeFences']) {
+    if (src[k] !== got[k]) diffs.push(`${k} ${src[k]} → ${got[k]}`)
+  }
+  if (diffs.length) {
+    console.error('\n✗ 回讀驗證不通過——存進去的內容與原檔對不上：')
+    diffs.forEach((d) => console.error(`    ${d}`))
+    die(`請先看過 https://makeclass.me/pusher/${pushId}/review 再決定是否重送。`)
+  }
+  console.log(`OK（正文 ${got.chars} 字｜標題 ${got.headings}｜表格 ${got.tableRows} 列｜程式碼 ${got.codeFences} 塊）`)
+}
+
 async function cmdPost(argv) {
   const args = parseArgsLoose(argv)
   const token = resolveToken(typeof args.token === 'string' ? args.token : null)
@@ -377,6 +408,10 @@ async function cmdPost(argv) {
         r.status === 403 ? '只有作者本人可以改，且權杖要有 pusher:write'
           : r.status === 404 ? '找不到這個 pushId' : undefined)
     }
+    if (!args['no-verify']) {
+      await verifyPostPersisted({ pushId: updateId, headers, expectedBody: articleBody || undefined })
+    }
+
     const url = `https://makeclass.me/learn/${updateId}`
     console.log(`\n✓ 已更新：${Object.keys(patch).join('、')}`)
     console.log(`  ${url}`)
@@ -393,6 +428,11 @@ async function cmdPost(argv) {
         : res.status === 403 ? '這支權杖沒有 pusher:write 權限 → 建立時要勾「發表內容」' : undefined)
   }
   const pushId = json.pushId
+
+  if (!args['no-verify']) {
+    await verifyPostPersisted({ pushId, headers, expectedBody: articleBody || undefined })
+  }
+
   const url = `https://makeclass.me/pusher/${pushId}/review`
   console.log(`\n✓ 已建立草稿：${url}`)
   console.log('  草稿——請到上面的連結看過內容，確認後按發布')
@@ -429,7 +469,7 @@ mcpost — 把開發對話或觀點文直接發到 MakeClass（不需要 clone �
 
 devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --token <t>
 post 選項：  --title <t>  --subtitle <t>  --source <url>  --take <文字|檔案|->
-             --body <檔案>  --channel <id>  --post  --update <pushId>
+             --body <檔案>  --channel <id>  --post  --update <pushId>  --no-verify
 
 Token 讀取順序：--token > $MAKECLASS_TOKEN > ~/.makeclass/token
 環境變數 MAKECLASS_API_BASE 可覆寫 API 位址（預設正式站）
