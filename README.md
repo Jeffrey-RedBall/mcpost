@@ -33,6 +33,18 @@ mcpost install-skill
 - Claude Code：見 [SKILL.md](SKILL.md)
 - Codex／Cursor／其他：見 [AGENTS.md](AGENTS.md)
 
+## 疑難排解
+
+**指令表現跟預期不一樣**（例如 `mcpost token` 沒有問你要不要貼 token，反而報 `缺少 --title` 之類跟 token 無關的錯誤）：
+
+先跑：
+
+```bash
+which -a mcpost
+```
+
+如果列出來的路徑不是 npm 全域安裝的位置，而是指向別的檔案，代表你的 shell 設定裡有一條**同名的 alias 或 function** 蓋掉了 `mcpost` 這個指令（`type mcpost` 可以看得更清楚，會直接顯示「aliased to …」）。到 `~/.zshrc`（或 `~/.bashrc`）裡找到那條 `alias mcpost=...` 或 `mcpost() { ... }`，刪掉或改名，重開一個新終端機分頁（或 `source ~/.zshrc`）再試一次。
+
 ## 安全
 
 - 送出前一律跑機密掃描（API key、私鑰、DB 連線字串、`.env` 賦值），**掃到直接中止，沒有 `--force`**
