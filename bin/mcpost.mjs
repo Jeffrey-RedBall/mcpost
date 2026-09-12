@@ -12,6 +12,7 @@
  *   npx mcpost token              # 互動輸入 Personal Access Token 並存檔
  *   npx mcpost devlog <file.md> [--dry-run] [--yes]     # 送 DevLog（進 Vibe Coding 專區）
  *   npx mcpost post --title "..." --body <file|文字> [--post]   # 送一般文章 / 觀點文
+ *   npx mcpost channels           # 列出我的頻道（含 handle），發文前不用先開網頁查
  *   npx mcpost install-skill      # 幫 Claude Code 裝 /mcpost 指令（要先 npm install -g mcpost）
  *
  * 刻意零 npm 依賴——任何 agent 的沙箱都能直接 node 跑，不用先 npm install 別的東西。
@@ -457,6 +458,37 @@ async function cmdPost(argv) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// channels：列出自己有哪些頻道（含 handle），發文前不用先去網頁查
+// ─────────────────────────────────────────────────────────────────────────
+async function cmdChannels(argv) {
+  const args = parseArgsLoose(argv)
+  const token = resolveToken(typeof args.token === 'string' ? args.token : null)
+  if (!token) die('找不到 token', '跑 `mcpost token` 設定一次，或 export MAKECLASS_TOKEN=mck_xxx')
+  if (!token.startsWith('mck_')) die('token 格式不對（應以 mck_ 開頭）')
+
+  const r = await fetch(`${API_BASE}/v1/makeclass/channels/mine-for-token`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch((e) => die(`連不上 API：${e.message}`))
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok || !j.success) {
+    die(`查詢失敗（HTTP ${r.status}）：${j.error || '（伺服器沒說原因）'}`,
+      r.status === 401 ? '權杖無效或已撤銷 → 到 /settings/tokens 重新建一支'
+        : r.status === 403 ? '這支權杖沒有 pusher:read 權限 → 建立時要勾「讀取內容」' : undefined)
+  }
+  const channels = j.data || []
+  if (channels.length === 0) {
+    console.log('你還沒有任何頻道，去 https://makeclass.me 開一個吧')
+    return
+  }
+  console.log(`\n你的頻道（${channels.length}）：\n`)
+  for (const c of channels) {
+    const tags = [c.isDefault ? '預設' : null, c.role === 'editor' ? '共編' : null].filter(Boolean)
+    console.log(`  @${c.handle}${tags.length ? `（${tags.join('、')}）` : ''} — ${c.displayName}`)
+  }
+  console.log('\n發文時帶：mcpost post --channel @<handle> ...')
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // install-skill：幫 Claude Code 裝 /mcpost（需要先 npm install -g mcpost）
 // ─────────────────────────────────────────────────────────────────────────
 function cmdInstallSkill() {
@@ -483,6 +515,7 @@ mcpost — 把開發對話或觀點文直接發到 MakeClass（不需要 clone �
   mcpost token [value]                    設定 Personal Access Token
   mcpost devlog <file.md> [options]       送 DevLog（進 Vibe Coding 專區）
   mcpost post [options]                   送一般文章 / 觀點文
+  mcpost channels                         列出我的頻道（含 handle，供 --channel 用）
   mcpost install-skill                    幫 Claude Code 裝 /mcpost（需先 npm install -g mcpost）
 
 devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --token <t>
@@ -499,6 +532,7 @@ switch (cmd) {
   case 'token': await cmdToken(rest); break
   case 'devlog': await cmdDevlog(rest); break
   case 'post': await cmdPost(rest); break
+  case 'channels': await cmdChannels(rest); break
   case 'install-skill': cmdInstallSkill(); break
   case '--help': case '-h': case undefined: printHelp(); break
   default: die(`不認得的指令：${cmd}`, '跑 mcpost --help 看用法')
