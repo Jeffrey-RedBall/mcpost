@@ -13,7 +13,7 @@
  *   npx mcpost devlog <file.md> [--dry-run] [--yes]     # 送 DevLog（進 Vibe Coding 專區）
  *   npx mcpost post --title "..." --body <file|文字> [--post]   # 送一般文章 / 觀點文
  *   npx mcpost channels           # 列出我的頻道（含 handle），發文前不用先開網頁查
- *   npx mcpost install-skill      # 幫 Claude Code 裝 /mcpost 指令（要先 npm install -g mcpost）
+ *   npx mcpost install-skill      # 幫 Claude Code 與 Codex 裝 /mcpost 與 /mcslide
  *
  * 刻意零 npm 依賴——任何 agent 的沙箱都能直接 node 跑，不用先 npm install 別的東西。
  */
@@ -489,21 +489,40 @@ async function cmdChannels(argv) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// install-skill：幫 Claude Code 裝 /mcpost（需要先 npm install -g mcpost）
+// install-skill：幫 Claude Code 裝 /mcpost 與 /mcslide（需要先 npm install -g mcpost）
+//
+// 兩個 skill、一個套件：使用者記的是動作（發文／做簡報），裝的只有一包。
+// ⚠️ /mcpost 的 symlink 指向套件根目錄（根目錄的 SKILL.md 就是它），
+//    這是為了**相容舊版**——已經裝過的人不用重裝。/mcslide 指向 skills/mcslide。
 // ─────────────────────────────────────────────────────────────────────────
-function cmdInstallSkill() {
-  const dest = join(homedir(), '.claude', 'skills', 'mcpost')
+function linkSkill(root, name, target) {
+  const dest = join(homedir(), root, 'skills', name)
   mkdirSync(dirname(dest), { recursive: true })
-  if (existsSync(dest)) {
+  if (existsSync(dest) || (() => { try { return !!lstatSync(dest) } catch { return false } })()) {
     const isLink = (() => { try { return lstatSync(dest).isSymbolicLink() } catch { return false } })()
     if (!isLink) die(`${dest} 已存在且不是 symlink，請先手動處理`)
     unlinkSync(dest)
   }
-  symlinkSync(PKG_DIR, dest)
-  console.log(`✓ Skill 已安裝：${dest} → ${PKG_DIR}`)
-  console.log('驗證：在任何專案開 Claude Code，輸入 /mcpost')
-  console.log('\n⚠️ 這個 symlink 指向全域 npm 安裝位置，之後跑 `npm update -g mcpost` 會自動生效。')
-  console.log('   如果是用 npx（沒有全域安裝），這個 symlink 之後可能失效，建議改用 `npm install -g mcpost`。')
+  symlinkSync(target, dest)
+  console.log(`✓ ${dest}`)
+}
+
+function cmdInstallSkill() {
+  // Claude Code 與 Codex 的 skill 格式相同（SKILL.md + frontmatter），
+  // 差別只有放哪個目錄 → 同一份 symlink 兩邊都能用。
+  // Codex 只在它裝過（~/.codex 存在）時才裝，免得在沒用 Codex 的機器上亂建目錄。
+  const roots = [['.claude', 'Claude Code']]
+  if (existsSync(join(homedir(), '.codex'))) roots.push(['.codex', 'Codex'])
+
+  for (const [root, label] of roots) {
+    console.log(`\n${label}：`)
+    linkSkill(root, 'mcpost', PKG_DIR)
+    linkSkill(root, 'mcslide', join(PKG_DIR, 'skills', 'mcslide'))
+  }
+  if (roots.length === 1) console.log('\n（沒偵測到 ~/.codex，略過 Codex）')
+  console.log('\n驗證：開 Claude Code 或 Codex，輸入 /mcpost 或 /mcslide')
+  console.log('\n⚠️ symlink 指向全域 npm 安裝位置，之後跑 `npm update -g mcpost` 會自動生效。')
+  console.log('   如果是用 npx（沒有全域安裝），symlink 之後可能失效，建議改用 `npm install -g mcpost`。')
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -516,11 +535,15 @@ mcpost — 把開發對話或觀點文直接發到 MakeClass（不需要 clone �
   mcpost devlog <file.md> [options]       送 DevLog（進 Vibe Coding 專區）
   mcpost post [options]                   送一般文章 / 觀點文
   mcpost channels                         列出我的頻道（含 handle，供 --channel 用）
-  mcpost install-skill                    幫 Claude Code 裝 /mcpost（需先 npm install -g mcpost）
+  mcpost install-skill                    幫 Claude Code 與 Codex 裝 /mcpost 與 /mcslide
 
 devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --token <t>
 post 選項：  --title <t>  --subtitle <t>  --source <url>  --take <文字|檔案|->
              --body <檔案>  --channel <id 或 @handle>  --post  --update <pushId>  --no-verify
+
+做簡報用另一個指令（同一包、同一支權杖）：
+  mcslide <file.md> [--source <pushId>] [--channel @handle] [--dry-run]
+  mcslide from <pushId> [--pages 20]      交給站上的 AI 讀那篇來做
 
 Token 讀取順序：--token > $MAKECLASS_TOKEN > ~/.makeclass/token
 環境變數 MAKECLASS_API_BASE 可覆寫 API 位址（預設正式站）

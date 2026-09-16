@@ -1,15 +1,17 @@
 {
   "name": "mcpost",
-  "version": "1.1.0",
-  "description": "把開發對話或觀點文，從任何終端機直接發到 MakeClass——不需要 clone MakeClass 主程式，只需要一支 Personal Access Token。",
+  "version": "1.2.0",
+  "description": "把開發對話、觀點文與投影片，從任何終端機直接發到 MakeClass——不需要 clone MakeClass 主程式，只需要一支 Personal Access Token。",
   "type": "module",
   "bin": {
-    "mcpost": "bin/mcpost.mjs"
+    "mcpost": "bin/mcpost.mjs",
+    "mcslide": "bin/mcslide.mjs"
   },
   "files": [
     "bin",
     "SKILL.md",
-    "AGENTS.md"
+    "AGENTS.md",
+    "skills"
   ],
   "engines": {
     "node": ">=18"
@@ -21,7 +23,9 @@
     "blog",
     "cli",
     "claude-code",
-    "codex"
+    "codex",
+    "slides",
+    "presentation"
   ],
   "repository": {
     "type": "git",

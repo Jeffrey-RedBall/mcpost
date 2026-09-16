@@ -36,20 +36,22 @@ subtitle: <一句話補充>
 category: vibecoding
 tags: [claude-code, git-worktree]
 question: |
-  <使用者的原始提問，原文照抄不要改寫>
+  <使用者原本的問法，去掉專案名／客戶名／內部代號／路徑>
 source:
   agent: claude-code
   model: <當前 model id>
-  repo: <repo 名，選填>
-  commit: <當前 HEAD 短 hash，選填>
+  repo: <repo 名，選填——填了會印在公開頁面>
+  commit: <當前 HEAD 短 hash，選填——填了會印在公開頁面>
 visibility: unlisted
 ---
 
 <正文 Markdown>
 ```
 
-**`question` 一定要原文照抄。** DevLog 的檢索入口是「我當時卡在什麼」，
-不是標題——三個月後你會搜「worktree 什麼時候開」，不會搜「五層隔離粒度」。
+**`question` 保留使用者原本的問法，但要去識別。** DevLog 的檢索入口是「我當時卡在什麼」，
+不是標題——三個月後你會搜「worktree 什麼時候開」，不會搜「五層隔離粒度」，所以問法要留著。
+但這欄**會顯示在公開頁面上**：專案名、客戶名、內部代號、路徑、網址一律拿掉。
+保留「卡在什麼」，拿掉「在哪裡卡」。
 
 正文寫作原則：
 - 開頭直接給結論，不要鋪陳

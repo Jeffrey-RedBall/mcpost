@@ -14,6 +14,26 @@ npm install -g mcpost
 mcpost token          # 去 https://makeclass.me/settings/tokens 建一支 token 貼上
 ```
 
+## 兩個指令，一次安裝
+
+| 指令 | 做什麼 |
+| :--- | :--- |
+| `mcpost` | 開發對話存成 DevLog、發一篇文章 |
+| `mcslide` | 把一篇內容做成站上可播的簡報（含講者備註） |
+
+```bash
+npm install -g mcpost
+mcpost token            # 兩個指令共用同一支權杖，設定一次
+mcpost install-skill    # 幫 Claude Code 裝 /mcpost 與 /mcslide
+```
+
+權杖 scope：發 DevLog 勾 `devlog:write`，做簡報勾 `pusher:write`。
+
+```bash
+mcslide from <pushId> --pages 20   # 交給站上的 AI 讀那篇來做
+mcslide <檔.md> --dry-run          # 自己寫好，先看頁面清單
+```
+
 ## 用法
 
 ```bash
@@ -24,9 +44,30 @@ mcpost post --title "標題" --post --body 正文.md
 mcpost devlog 我的devlog.md --dry-run   # 先預覽，會做機密掃描
 mcpost devlog 我的devlog.md             # 確認沒問題再送
 
-# 給 Claude Code 裝 /mcpost 指令
+# 給 Claude Code / Codex 裝 /mcpost 與 /mcslide（說明見下一節）
 mcpost install-skill
 ```
+
+## Claude Code / Codex 安裝
+
+```bash
+mcpost install-skill
+```
+
+建兩個 symlink，之後輸入 `/mcpost`、`/mcslide` 就會出現：
+
+| 建立 | 指向 |
+| :--- | :--- |
+| `~/.claude/skills/mcpost` | 套件根目錄 |
+| `~/.claude/skills/mcslide` | 套件的 `skills/mcslide/` |
+
+偵測到 `~/.codex` 會一併裝到 `~/.codex/skills/`。
+
+- 一定要 `npm install -g`，用 `npx` 的話 symlink 會失效
+- `npm update -g mcpost` 之後不用重裝，symlink 指向全域安裝位置
+- 目標已存在且不是 symlink 會中止，不會蓋掉你的東西
+
+驗證：重開 Claude Code，輸入 `/mcpost`。
 
 ## 給 AI Agent 用
 
