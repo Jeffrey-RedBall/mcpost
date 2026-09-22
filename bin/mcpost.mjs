@@ -18,7 +18,7 @@
  * 刻意零 npm 依賴——任何 agent 的沙箱都能直接 node 跑，不用先 npm install 別的東西。
  */
 
-import { readFileSync, existsSync, mkdirSync, writeFileSync, chmodSync, symlinkSync, unlinkSync, lstatSync } from 'node:fs'
+import { readFileSync, existsSync, mkdirSync, writeFileSync, chmodSync, symlinkSync, unlinkSync, lstatSync, readlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -489,6 +489,94 @@ async function cmdChannels(argv) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// 版本檢查與 doctor
+//
+// 為什麼只在 install-skill / doctor 查，不是每個指令都查：
+//   每次都查等於每次多一個網路請求，離線就卡住。而使用者在意「我的環境對不對」
+//   就是這兩個時機。其餘指令該做什麼做什麼，不要被檢查拖慢。
+//
+// ⚠️ 查不到一律靜默略過 —— 網路不通不該讓安裝失敗。
+// ─────────────────────────────────────────────────────────────────────────
+function localVersion() {
+  try { return JSON.parse(readFileSync(join(PKG_DIR, 'package.json'), 'utf8')).version } catch { return null }
+}
+
+async function latestVersion() {
+  try {
+    // ⚠️ 不要帶 `accept: application/vnd.npm.install-v1+json` —— 那個精簡格式
+    //    只支援完整 package document，打 /latest 會回 406，而 406 被當成
+    //    「離線」靜默略過，檢查就永遠是綠的（2026-09-22 實測抓到）。
+    const res = await fetch('https://registry.npmjs.org/mcpost/latest', {
+      signal: AbortSignal.timeout(3000),
+    })
+    if (!res.ok) return null
+    return (await res.json()).version || null
+  } catch { return null }
+}
+
+/** 1.2.0 vs 1.10.0 不能用字串比 —— 逐段比數字 */
+function isOlder(a, b) {
+  if (!a || !b) return false
+  const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) < (pb[i] || 0)) return true
+    if ((pa[i] || 0) > (pb[i] || 0)) return false
+  }
+  return false
+}
+
+async function warnIfOutdated() {
+  const mine = localVersion(), latest = await latestVersion()
+  if (!isOlder(mine, latest)) return false
+  console.log(`\n⚠️  你裝的是 ${mine}，最新是 ${latest}`)
+  console.log('   升級：npm install -g mcpost')
+  console.log('   ⚠️ 升級後要**重跑 mcpost install-skill** —— skill 的 symlink 指向安裝位置，npm 升級不會動它')
+  return true
+}
+
+/** skill symlink 現在指到哪（不存在回 null） */
+function skillTarget(root, name) {
+  const p = join(homedir(), root, 'skills', name)
+  try { return lstatSync(p).isSymbolicLink() ? readlinkSync(p) : `（不是 symlink）${p}` } catch { return null }
+}
+
+async function cmdDoctor() {
+  const mine = localVersion()
+  console.log('mcpost doctor\n')
+  console.log(`套件版本   ${mine}`)
+  console.log(`安裝位置   ${PKG_DIR}`)
+
+  const latest = await latestVersion()
+  if (latest === null) console.log('registry   （查不到，可能是離線）')
+  else if (isOlder(mine, latest)) console.log(`registry   ${latest}  ← 你落後了`)
+  else console.log(`registry   ${latest}  ✓`)
+
+  console.log(`\n權杖       ${existsSync(TOKEN_FILE) || process.env.MAKECLASS_TOKEN ? '已設定' : '缺（跑 mcpost token）'}`)
+
+  console.log('\nSkill 安裝狀況：')
+  let stale = false, missing = false
+  for (const [root, label] of [['.claude', 'Claude Code'], ['.codex', 'Codex']]) {
+    if (!existsSync(join(homedir(), root))) { console.log(`  ${label.padEnd(12)}（沒偵測到，略過）`); continue }
+    for (const name of ['mcpost', 'mcslide']) {
+      const t = skillTarget(root, name)
+      if (!t) { console.log(`  ${label.padEnd(12)}/${name.padEnd(8)} ✗ 沒安裝`); missing = true; continue }
+      // symlink 指的是套件目錄或它底下 —— 不一致代表指著另一份安裝
+      const ok = t === PKG_DIR || t.startsWith(PKG_DIR + '/')
+      console.log(`  ${label.padEnd(12)}/${name.padEnd(8)} ${ok ? '✓' : '⚠️ 指向別處：' + t}`)
+      if (!ok) stale = true
+    }
+  }
+
+  if (stale || missing) {
+    console.log('\n→ 跑 `mcpost install-skill` 重新指向這一份安裝')
+    if (stale) console.log('   （指向別處＝你有兩份程式碼，改了其中一份另一份不會變）')
+  } else {
+    console.log('\n✓ 都指向這一份安裝')
+  }
+  if (isOlder(mine, latest)) await warnIfOutdated()
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // install-skill：幫 Claude Code 裝 /mcpost 與 /mcslide（需要先 npm install -g mcpost）
 //
 // 兩個 skill、一個套件：使用者記的是動作（發文／做簡報），裝的只有一包。
@@ -521,6 +609,7 @@ function cmdInstallSkill() {
   }
   if (roots.length === 1) console.log('\n（沒偵測到 ~/.codex，略過 Codex）')
   console.log('\n驗證：開 Claude Code 或 Codex，輸入 /mcpost 或 /mcslide')
+  console.log('   有問題就跑 `mcpost doctor`')
   console.log('\n⚠️ symlink 指向全域 npm 安裝位置，之後跑 `npm update -g mcpost` 會自動生效。')
   console.log('   如果是用 npx（沒有全域安裝），symlink 之後可能失效，建議改用 `npm install -g mcpost`。')
 }
@@ -536,6 +625,7 @@ mcpost — 把開發對話或觀點文直接發到 MakeClass（不需要 clone �
   mcpost post [options]                   送一般文章 / 觀點文
   mcpost channels                         列出我的頻道（含 handle，供 --channel 用）
   mcpost install-skill                    幫 Claude Code 與 Codex 裝 /mcpost 與 /mcslide
+  mcpost doctor                           檢查版本、權杖、skill 指到哪（環境不對時先跑這個）
 
 devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --token <t>
 post 選項：  --title <t>  --subtitle <t>  --source <url>  --take <文字|檔案|->
@@ -556,7 +646,8 @@ switch (cmd) {
   case 'devlog': await cmdDevlog(rest); break
   case 'post': await cmdPost(rest); break
   case 'channels': await cmdChannels(rest); break
-  case 'install-skill': cmdInstallSkill(); break
+  case 'install-skill': cmdInstallSkill(); await warnIfOutdated(); break
+  case 'doctor': await cmdDoctor(); break
   case '--help': case '-h': case undefined: printHelp(); break
   default: die(`不認得的指令：${cmd}`, '跑 mcpost --help 看用法')
 }
