@@ -21,7 +21,7 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync, chmodSync, symlinkSync, unlinkSync, lstatSync, readlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, dirname, resolve as resolvePath, isAbsolute, basename, extname } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
 
 const API_BASE = process.env.MAKECLASS_API_BASE
@@ -743,13 +743,18 @@ Token 讀取順序：--token > $MAKECLASS_TOKEN > ~/.makeclass/token
 `)
 }
 
-// 只有「直接被執行」才跑指令。被 import 時（測試）只拿函式，不會意外發文。
+// 測試要 import 這支拿純函式，但這個檔案同時是 CLI 入口。
+//
+// 🚨 1.4.0 這裡用 `import.meta.url === pathToFileURL(process.argv[1]).href` 判斷「是不是被
+//    直接執行」，結果**全域安裝的 mcpost 完全不會動**：npm 的 bin 是 symlink，
+//    process.argv[1] 是 symlink 路徑、import.meta.url 是解析後的真實路徑，兩者永遠不相等
+//    → 每一個指令都靜默什麼都不做，連錯誤訊息都沒有。
+//
+//    改用環境變數：CLI 是這支的主要身分，**預設一定執行**，只有測試明確關掉
+//    （package.json 的 test script 帶 MCPOST_NO_MAIN=1）。路徑長什麼樣都不影響。
 export { findLocalImages, rewriteImageUrls, IMG_MIME, MAX_IMAGE_BYTES }
 
-const invokedDirectly = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
-if (!invokedDirectly) {
-  // 被 import：什麼都不做
-} else {
+if (!process.env.MCPOST_NO_MAIN) {
 
 const [, , cmd, ...rest] = process.argv
 switch (cmd) {
