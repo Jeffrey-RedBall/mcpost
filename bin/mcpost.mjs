@@ -20,8 +20,8 @@
 
 import { readFileSync, existsSync, mkdirSync, writeFileSync, chmodSync, symlinkSync, unlinkSync, lstatSync, readlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join, dirname, resolve as resolvePath, isAbsolute, basename, extname } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createInterface } from 'node:readline/promises'
 
 const API_BASE = process.env.MAKECLASS_API_BASE
@@ -323,6 +323,79 @@ function readTake(spec, extraWords) {
   return [spec, ...(extraWords || [])].join(' ')
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// 圖片：把正文裡的本地圖片上傳到 MakeClass，再把路徑換成 https 網址
+//
+// 為什麼要做這個：站上正文**只顯示 https 的圖片**（http 與 data: 一律不渲染，
+// 那是混合內容與夾帶 HTML 的防線）。所以本機寫好的圖文並茂文章，光靠 --body
+// 送上去圖一張都不會出現——以前只能自己先把圖搬到某個空間拿網址。
+// ─────────────────────────────────────────────────────────────────────────
+
+const IMG_MIME = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp', '.gif': 'image/gif', '.avif': 'image/avif',
+}
+/** CF Gen 1 的 HTTP body 上限是 10 MB，超過會被閘道擋掉而且錯誤訊息很難懂 */
+const MAX_IMAGE_BYTES = 9 * 1024 * 1024
+
+/** 找出正文裡「指向本機檔案」的圖片。已經是網址的、找不到檔案的都跳過。 */
+function findLocalImages(markdown, baseDir) {
+  const out = []
+  const seen = new Set()
+  const re = /!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+  let m
+  while ((m = re.exec(markdown))) {
+    const raw = m[1]
+    if (/^(https?:|data:|\/\/)/i.test(raw) || seen.has(raw)) continue
+    seen.add(raw)
+    const abs = isAbsolute(raw) ? raw : resolvePath(baseDir, raw)
+    if (!existsSync(abs)) continue
+    const ext = extname(abs).toLowerCase()
+    if (!IMG_MIME[ext]) continue
+    out.push({ raw, abs, ext })
+  }
+  return out
+}
+
+/** 逐張上傳到 /pusher/:id/upload-asset，回傳 { 原路徑 → https 網址 } */
+async function uploadImages(images, pushId, token) {
+  const map = new Map()
+  for (const [i, img] of images.entries()) {
+    const buf = readFileSync(img.abs)
+    if (buf.length > MAX_IMAGE_BYTES) {
+      die(`圖片太大：${img.raw}（${(buf.length / 1024 / 1024).toFixed(1)} MB）`,
+        `單張上限 ${MAX_IMAGE_BYTES / 1024 / 1024} MB，請先壓縮`)
+    }
+    const fd = new FormData()
+    // ⚠️ 不要自己設 Content-Type，讓 fetch 帶 multipart 的 boundary
+    fd.append('file', new Blob([buf], { type: IMG_MIME[img.ext] }), basename(img.abs))
+    process.stdout.write(`  上傳圖片 ${i + 1}/${images.length}：${img.raw} … `)
+    const r = await fetch(`${API_BASE}/v1/makeclass/pusher/${encodeURIComponent(pushId)}/upload-asset`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+    }).catch((e) => die(`連不上 API：${e.message}`))
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok || !j.success || !j.fileUrl) {
+      console.log('✗')
+      die(`圖片上傳失敗（HTTP ${r.status}）：${j.error || '（伺服器沒說原因）'}`,
+        r.status === 403 ? '權杖要有「發表內容」(pusher:write)，而且只有作者本人能傳'
+          : r.status === 413 ? '檔案太大，請先壓縮' : undefined)
+    }
+    console.log('OK')
+    map.set(img.raw, j.fileUrl)
+  }
+  return map
+}
+
+/** 把正文裡的本地路徑換成上傳後的網址 */
+function rewriteImageUrls(markdown, map) {
+  let out = markdown
+  for (const [from, to] of map) {
+    // 只換「在 ![]( ) 裡面」的那一份，避免把內文提到的同名字串也換掉
+    out = out.replaceAll(`](${from})`, `](${to})`)
+  }
+  return out
+}
+
 function parseArgsLoose(argv) {
   const out = { _: [] }
   for (let i = 0; i < argv.length; i++) {
@@ -396,6 +469,9 @@ async function cmdPost(argv) {
 
   const take = readTake(args.take, args._)
   const articleBody = readTake(args.body, args.take ? [] : args._)
+  // 正文裡的相對路徑要相對於「正文那個檔案」，不是相對於你現在站在哪個目錄
+  const bodyDir = typeof args.body === 'string' && existsSync(args.body) ? dirname(resolvePath(args.body)) : process.cwd()
+  const localImages = articleBody && !args['no-images'] ? findLocalImages(articleBody, bodyDir) : []
   const body = {
     title,
     ...(typeof args.subtitle === 'string' ? { subtitle: args.subtitle } : {}),
@@ -417,6 +493,12 @@ async function cmdPost(argv) {
     if (channelId) patch.channelId = channelId
     if (take) patch.contentSummary = take
     if (Object.keys(patch).length === 0) die('--update 沒有指定要改什麼', '至少給 --title / --body / --take 其中一個')
+
+    // 已經有 pushId，圖片可以先傳完再送正文，一次 PATCH 就定案
+    if (localImages.length && patch.articleBody) {
+      console.log(`\n找到 ${localImages.length} 張本地圖片，先上傳：`)
+      patch.articleBody = rewriteImageUrls(patch.articleBody, await uploadImages(localImages, updateId, token))
+    }
 
     const r = await fetch(`${API_BASE}/v1/makeclass/pusher/${encodeURIComponent(updateId)}`, {
       method: 'PATCH', headers, body: JSON.stringify(patch),
@@ -448,8 +530,25 @@ async function cmdPost(argv) {
   }
   const pushId = json.pushId
 
+  // 圖片要掛在某一篇底下，所以順序是「先建草稿拿 pushId → 傳圖 → 用網址更新正文」。
+  // 中間那一瞬間草稿裡的圖連結還是本機路徑（站上不顯示），但它是草稿、還沒發布，不影響讀者。
+  let finalBody = articleBody
+  if (localImages.length) {
+    console.log(`\n找到 ${localImages.length} 張本地圖片，開始上傳：`)
+    finalBody = rewriteImageUrls(articleBody, await uploadImages(localImages, pushId, token))
+    const r2 = await fetch(`${API_BASE}/v1/makeclass/pusher/${encodeURIComponent(pushId)}`, {
+      method: 'PATCH', headers, body: JSON.stringify({ articleBody: finalBody }),
+    }).catch((e) => die(`連不上 API：${e.message}`))
+    const j2 = await r2.json().catch(() => ({}))
+    // ⚠️ 這裡失敗不能默默略過：草稿會留著一堆指向本機路徑的圖，發布出去就是一篇沒有圖的文章
+    if (!r2.ok || j2.success === false) {
+      die(`圖片已上傳，但正文更新失敗（HTTP ${r2.status}）：${j2.error || '（伺服器沒說原因）'}`,
+        `草稿還在 https://makeclass.me/pusher/${pushId}/review —— 重跑：mcpost post --update ${pushId} --body <檔案>`)
+    }
+  }
+
   if (!args['no-verify']) {
-    await verifyPostPersisted({ pushId, headers, expectedBody: articleBody || undefined })
+    await verifyPostPersisted({ pushId, headers, expectedBody: finalBody || undefined })
   }
 
   const url = `https://makeclass.me/pusher/${pushId}/review`
@@ -629,7 +728,11 @@ mcpost — 把開發對話或觀點文直接發到 MakeClass（不需要 clone �
 
 devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --token <t>
 post 選項：  --title <t>  --subtitle <t>  --source <url>  --take <文字|檔案|->
-             --body <檔案>  --channel <id 或 @handle>  --post  --update <pushId>  --no-verify
+             --body <檔案>  --channel <id 或 @handle>  --post  --update <pushId>
+             --no-verify  --no-images（不要自動上傳正文裡的本地圖片）
+
+圖文並茂：正文裡寫 ![說明](./img/a.png) 就好，mcpost 會自動把本地圖片上傳到
+MakeClass 再換成 https 網址（站上只顯示 https 的圖）。路徑相對於正文那個檔案。
 
 做簡報用另一個指令（同一包、同一支權杖）：
   mcslide <file.md> [--source <pushId>] [--channel @handle] [--dry-run]
@@ -639,6 +742,14 @@ Token 讀取順序：--token > $MAKECLASS_TOKEN > ~/.makeclass/token
 環境變數 MAKECLASS_API_BASE 可覆寫 API 位址（預設正式站）
 `)
 }
+
+// 只有「直接被執行」才跑指令。被 import 時（測試）只拿函式，不會意外發文。
+export { findLocalImages, rewriteImageUrls, IMG_MIME, MAX_IMAGE_BYTES }
+
+const invokedDirectly = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+if (!invokedDirectly) {
+  // 被 import：什麼都不做
+} else {
 
 const [, , cmd, ...rest] = process.argv
 switch (cmd) {
@@ -650,4 +761,6 @@ switch (cmd) {
   case 'doctor': await cmdDoctor(); break
   case '--help': case '-h': case undefined: printHelp(); break
   default: die(`不認得的指令：${cmd}`, '跑 mcpost --help 看用法')
+}
+
 }
