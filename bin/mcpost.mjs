@@ -28,6 +28,29 @@ const API_BASE = process.env.MAKECLASS_API_BASE
   || 'https://asia-east1-makeclass-prod.cloudfunctions.net/api'
 
 const TOKEN_FILE = join(homedir(), '.makeclass', 'token')
+
+// ── 所有打 MakeClass 的請求自動帶版本 ────────────────────────────────────
+// 在這一層做而不是逐個 fetch 補：這支有 9 處 fetch，逐處補一定會漏掉一兩個，
+// 之後新增的也會忘記。只對 API_BASE 開頭的請求動手，不碰打 registry 那支。
+{
+  const _fetch = globalThis.fetch
+  const shown = new Set()
+  globalThis.fetch = async (url, init = {}) => {
+    if (typeof url !== 'string' || !url.startsWith(API_BASE)) return _fetch(url, init)
+    init = { ...init, headers: { ...(init.headers || {}), 'User-Agent': userAgent() } }
+    const res = await _fetch(url, init)
+    // 後端可以在任何回應裡塞 clientNotice（例如「你這一版有已知問題」）。
+    // 用 clone() 讀一份，呼叫端的 body 不受影響；同一則訊息只印一次。
+    try {
+      if ((res.headers.get('content-type') || '').includes('application/json')) {
+        const j = await res.clone().json()
+        const n = j && typeof j.clientNotice === 'string' ? j.clientNotice.trim() : ''
+        if (n && !shown.has(n)) { shown.add(n); console.log(`\n⚠️  ${n}`) }
+      }
+    } catch { /* 讀不到就算了，不影響主流程 */ }
+    return res
+  }
+}
 const PKG_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 
 function resolveToken(argToken) {
@@ -600,6 +623,48 @@ function localVersion() {
   try { return JSON.parse(readFileSync(join(PKG_DIR, 'package.json'), 'utf8')).version } catch { return null }
 }
 
+/**
+ * 所有 API 呼叫都帶這個 UA，後端才知道對面是哪一版 mcpost。
+ * 「這一版有已知問題」這種話只有伺服器講得出來——本機查 registry 只知道「有新版」。
+ */
+function userAgent() {
+  return `mcpost/${localVersion() || '0.0.0'} (node ${process.versions.node})`
+}
+
+// ── 版本檢查的快取：一天查一次就夠，不要每個指令都打 registry ──
+const VERSION_CACHE = join(homedir(), '.makeclass', 'version-check.json')
+const VERSION_CACHE_MS = 24 * 60 * 60 * 1000
+
+function cachedLatest() {
+  try {
+    const c = JSON.parse(readFileSync(VERSION_CACHE, 'utf8'))
+    if (Date.now() - c.at < VERSION_CACHE_MS) return c.latest
+  } catch { /* 沒快取或壞掉就當作沒有 */ }
+  return undefined
+}
+function putCachedLatest(latest) {
+  try {
+    mkdirSync(dirname(VERSION_CACHE), { recursive: true })
+    writeFileSync(VERSION_CACHE, JSON.stringify({ at: Date.now(), latest }))
+  } catch { /* 寫不進去不影響功能 */ }
+}
+
+/**
+ * 指令跑完後順手提醒版本落後。
+ * ⚠️ 絕對不能讓它影響主流程：查不到、逾時、寫不了快取都靜默略過——
+ * 使用者是來發文的，不是來等版本檢查的。
+ */
+async function nudgeIfOutdated() {
+  try {
+    const mine = localVersion()
+    if (!mine) return
+    let latest = cachedLatest()
+    if (latest === undefined) { latest = await latestVersion(); putCachedLatest(latest) }
+    if (!latest || !isOlder(mine, latest)) return
+    console.log(`\n⚠️  有新版 ${latest}（你的是 ${mine}）：npm install -g mcpost`)
+  } catch { /* 提醒失敗不是錯誤 */ }
+}
+
 async function latestVersion() {
   try {
     // ⚠️ 不要帶 `accept: application/vnd.npm.install-v1+json` —— 那個精簡格式
@@ -759,11 +824,14 @@ if (!process.env.MCPOST_NO_MAIN) {
 const [, , cmd, ...rest] = process.argv
 switch (cmd) {
   case 'token': await cmdToken(rest); break
-  case 'devlog': await cmdDevlog(rest); break
-  case 'post': await cmdPost(rest); break
-  case 'channels': await cmdChannels(rest); break
+  // 這幾支跑完順手提醒版本落後（一天查一次，查不到就靜默略過）。
+  // 以前只有 install-skill 會提醒，等於裝完就再也不會被告知有新版。
+  case 'devlog': await cmdDevlog(rest); await nudgeIfOutdated(); break
+  case 'post': await cmdPost(rest); await nudgeIfOutdated(); break
+  case 'channels': await cmdChannels(rest); await nudgeIfOutdated(); break
   case 'install-skill': cmdInstallSkill(); await warnIfOutdated(); break
   case 'doctor': await cmdDoctor(); break
+  case '--version': case '-v': console.log(localVersion() || '(讀不到版本)'); break
   case '--help': case '-h': case undefined: printHelp(); break
   default: die(`不認得的指令：${cmd}`, '跑 mcpost --help 看用法')
 }

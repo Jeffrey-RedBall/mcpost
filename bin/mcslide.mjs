@@ -15,7 +15,25 @@ import { resolve } from "node:path"
 import { homedir } from "node:os"
 
 const API = process.env.MAKECLASS_API || "https://asia-east1-makeclass-prod.cloudfunctions.net/api"
-const die = (msg, hint) => { console.error(`✗ ${msg}${hint ? `\n  ${hint}` : ""}`); process.exit(1) }
+
+
+// 跟 mcpost 同一套：所有打 MakeClass 的請求帶上版本，後端才認得出是哪一版。
+// 逐個 fetch 補會漏，所以在這一層做。
+function mcslideUserAgent() {
+    try {
+        const p = new URL('../package.json', import.meta.url)
+        return `mcpost/${JSON.parse(readFileSync(p, 'utf8')).version} (mcslide; node ${process.versions.node})`
+    } catch { return `mcpost/0.0.0 (mcslide)` }
+}
+{
+    const _fetch = globalThis.fetch
+    globalThis.fetch = (url, init = {}) => {
+        if (typeof url === 'string' && url.startsWith(API)) {
+            init = { ...init, headers: { ...(init.headers || {}), 'User-Agent': mcslideUserAgent() } }
+        }
+        return _fetch(url, init)
+    }
+}const die = (msg, hint) => { console.error(`✗ ${msg}${hint ? `\n  ${hint}` : ""}`); process.exit(1) }
 
 const argv = process.argv.slice(2)
 const flag = (n) => argv.includes(n)
