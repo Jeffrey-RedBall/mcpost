@@ -57,7 +57,7 @@ function fakeApi() {
 function run(bin, args, env) {
   return new Promise((ok) => {
     execFile(process.execPath, [join(BIN, bin), ...args], {
-      env: { ...process.env, MCPOST_NO_MAIN: '', MAKECLASS_TOKEN: 'mck_test', HOME: tmpdir(), ...env },
+      env: { ...process.env, MCPOST_NO_MAIN: '', MCPOST_NO_UPDATE_CHECK: '1', MAKECLASS_TOKEN: 'mck_test', HOME: tmpdir(), ...env },
     }, (err, stdout, stderr) => ok({ code: err ? err.code : 0, out: stdout + stderr }))
   })
 }

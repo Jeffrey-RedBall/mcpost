@@ -24,34 +24,16 @@ import { join, dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
 import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, IMG_MIME, MAX_IMAGE_BYTES } from './images.mjs'
+import { installApiFetch, localVersion, latestVersion, isOlder, nudgeIfOutdated } from './update-check.mjs'
 
 const API_BASE = process.env.MAKECLASS_API_BASE
   || 'https://asia-east1-makeclass-prod.cloudfunctions.net/api'
 
 const TOKEN_FILE = join(homedir(), '.makeclass', 'token')
 
-// ── 所有打 MakeClass 的請求自動帶版本 ────────────────────────────────────
-// 在這一層做而不是逐個 fetch 補：這支有 9 處 fetch，逐處補一定會漏掉一兩個，
-// 之後新增的也會忘記。只對 API_BASE 開頭的請求動手，不碰打 registry 那支。
-{
-  const _fetch = globalThis.fetch
-  const shown = new Set()
-  globalThis.fetch = async (url, init = {}) => {
-    if (typeof url !== 'string' || !url.startsWith(API_BASE)) return _fetch(url, init)
-    init = { ...init, headers: { ...(init.headers || {}), 'User-Agent': userAgent() } }
-    const res = await _fetch(url, init)
-    // 後端可以在任何回應裡塞 clientNotice（例如「你這一版有已知問題」）。
-    // 用 clone() 讀一份，呼叫端的 body 不受影響；同一則訊息只印一次。
-    try {
-      if ((res.headers.get('content-type') || '').includes('application/json')) {
-        const j = await res.clone().json()
-        const n = j && typeof j.clientNotice === 'string' ? j.clientNotice.trim() : ''
-        if (n && !shown.has(n)) { shown.add(n); console.log(`\n⚠️  ${n}`) }
-      }
-    } catch { /* 讀不到就算了，不影響主流程 */ }
-    return res
-  }
-}
+// 所有打 MakeClass 的請求自動帶版本、印出後端的升級提醒（./update-check.mjs，與 mcslide 共用）
+installApiFetch(API_BASE, { tool: 'mcpost' })
+
 const PKG_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 
 function resolveToken(argToken) {
@@ -588,82 +570,14 @@ async function cmdChannels(argv) {
 //
 // ⚠️ 查不到一律靜默略過 —— 網路不通不該讓安裝失敗。
 // ─────────────────────────────────────────────────────────────────────────
-function localVersion() {
-  try { return JSON.parse(readFileSync(join(PKG_DIR, 'package.json'), 'utf8')).version } catch { return null }
-}
-
-/**
- * 所有 API 呼叫都帶這個 UA，後端才知道對面是哪一版 mcpost。
- * 「這一版有已知問題」這種話只有伺服器講得出來——本機查 registry 只知道「有新版」。
- */
-function userAgent() {
-  return `mcpost/${localVersion() || '0.0.0'} (node ${process.versions.node})`
-}
-
-// ── 版本檢查的快取：一天查一次就夠，不要每個指令都打 registry ──
-const VERSION_CACHE = join(homedir(), '.makeclass', 'version-check.json')
-const VERSION_CACHE_MS = 24 * 60 * 60 * 1000
-
-function cachedLatest() {
-  try {
-    const c = JSON.parse(readFileSync(VERSION_CACHE, 'utf8'))
-    if (Date.now() - c.at < VERSION_CACHE_MS) return c.latest
-  } catch { /* 沒快取或壞掉就當作沒有 */ }
-  return undefined
-}
-function putCachedLatest(latest) {
-  try {
-    mkdirSync(dirname(VERSION_CACHE), { recursive: true })
-    writeFileSync(VERSION_CACHE, JSON.stringify({ at: Date.now(), latest }))
-  } catch { /* 寫不進去不影響功能 */ }
-}
-
-/**
- * 指令跑完後順手提醒版本落後。
- * ⚠️ 絕對不能讓它影響主流程：查不到、逾時、寫不了快取都靜默略過——
- * 使用者是來發文的，不是來等版本檢查的。
- */
-async function nudgeIfOutdated() {
-  try {
-    const mine = localVersion()
-    if (!mine) return
-    let latest = cachedLatest()
-    if (latest === undefined) { latest = await latestVersion(); putCachedLatest(latest) }
-    if (!latest || !isOlder(mine, latest)) return
-    console.log(`\n⚠️  有新版 ${latest}（你的是 ${mine}）：npm install -g mcpost`)
-  } catch { /* 提醒失敗不是錯誤 */ }
-}
-
-async function latestVersion() {
-  try {
-    // ⚠️ 不要帶 `accept: application/vnd.npm.install-v1+json` —— 那個精簡格式
-    //    只支援完整 package document，打 /latest 會回 406，而 406 被當成
-    //    「離線」靜默略過，檢查就永遠是綠的（2026-09-22 實測抓到）。
-    const res = await fetch('https://registry.npmjs.org/mcpost/latest', {
-      signal: AbortSignal.timeout(3000),
-    })
-    if (!res.ok) return null
-    return (await res.json()).version || null
-  } catch { return null }
-}
-
-/** 1.2.0 vs 1.10.0 不能用字串比 —— 逐段比數字 */
-function isOlder(a, b) {
-  if (!a || !b) return false
-  const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number)
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) < (pb[i] || 0)) return true
-    if ((pa[i] || 0) > (pb[i] || 0)) return false
-  }
-  return false
-}
+// localVersion／userAgent／latestVersion／isOlder／nudgeIfOutdated 在 ./update-check.mjs（與 mcslide 共用）
 
 async function warnIfOutdated() {
   const mine = localVersion(), latest = await latestVersion()
   if (!isOlder(mine, latest)) return false
   console.log(`\n⚠️  你裝的是 ${mine}，最新是 ${latest}`)
   console.log('   升級：npm install -g mcpost')
-  console.log('   ⚠️ 升級後要**重跑 mcpost install-skill** —— skill 的 symlink 指向安裝位置，npm 升級不會動它')
+  console.log('   升級後跑 mcpost doctor 確認——一般升級 skill 捷徑不受影響；用 npx 或換了 Node 版本才要重跑 install-skill')
   return true
 }
 
