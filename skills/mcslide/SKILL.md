@@ -61,8 +61,9 @@ curl -s "$API/<pushId>/transcript" -H "Authorization: Bearer $TOKEN" | jq -r '.d
 
 1. **不能有任何 HTML**——`<svg>`、`<figure>`、`<div>` 都會被 CLI 擋下。圖表先存成 PNG，
    用 `![說明](https://… "caption")`；圖片網址必須是 https。
-2. **圖片要先上傳**——本機圖檔沒有網址。用 Post 編輯器貼一次拿到 `makeclass/post-images/…` 的網址，
-   或先放進任何一篇再複製網址。
+2. **本機圖片直接寫相對路徑**——`![說明](./img/a.png "caption")`，路徑相對於這份 .md。
+   mcslide（1.5.0 起）會先建草稿、把圖傳上去、再換成 https 網址；`--dry-run` 會列出抓到幾張。
+   不想自動上傳就加 `--no-images`。SVG 不收，請先轉成 PNG；單張上限 9 MB。
 3. **front matter 一定要有 `title`**，封面才有東西；`seal` 兩個字（例：教材、提案），
    `speaker` 不填會用你的預設頻道。
 

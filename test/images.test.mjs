@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { findLocalImages, rewriteImageUrls } from '../bin/mcpost.mjs'
+import { findLocalImages, rewriteImageUrls } from '../bin/images.mjs'
 
 const dir = mkdtempSync(join(tmpdir(), 'mcpost-img-'))
 mkdirSync(join(dir, 'img'), { recursive: true })
@@ -57,4 +57,10 @@ test('多張圖一起換', () => {
     ['img/b.jpg', 'https://s/2.jpg'],
   ]))
   assert.equal(out, '![甲](https://s/1.png)\n![乙](https://s/2.jpg)')
+})
+
+test('帶說明的圖也要換（1.4.2 以前漏掉）', () => {
+  const md = '![甲](./img/a.png "說明文字")\n![乙](./img/a.png)'
+  const out = rewriteImageUrls(md, new Map([['./img/a.png', 'https://cdn/a.png']]))
+  assert.equal(out, '![甲](https://cdn/a.png "說明文字")\n![乙](https://cdn/a.png)')
 })

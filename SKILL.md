@@ -91,9 +91,10 @@ mcpost post --title "標題" --post --body 正文.md
 `--post` 是「人寫的觀點文」，不加就是 AI Note。兩支指令走不同端點，不要混用。
 
 **圖文並茂**：正文裡直接寫 `![說明](./img/a.png)`，路徑相對於正文那個檔案。
-mcpost 會自動把本地圖片上傳到 MakeClass 再換成 https 網址——站上正文**只顯示
+`mcpost post`、`mcpost devlog`（1.5.0 起）、`mcslide`（1.5.0 起）都會自動把本地圖片上傳到 MakeClass 再換成 https 網址——站上正文**只顯示
 https 的圖片**（http 與 `data:` 一律不渲染），所以不先上傳的話一張都不會出現。
 不想自動上傳就加 `--no-images`。SVG 不收（可夾帶 script），請先轉成 PNG。
+devlog 補圖走一般內容端點，權杖除了 `devlog:write` 還要勾「發表內容」（`pusher:write`）。
 
 ### 6. 回報
 
