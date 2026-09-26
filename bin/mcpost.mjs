@@ -20,14 +20,38 @@
 
 import { readFileSync, existsSync, mkdirSync, writeFileSync, chmodSync, symlinkSync, unlinkSync, lstatSync, readlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, dirname } from 'node:path'
+import { join, dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
+import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, IMG_MIME, MAX_IMAGE_BYTES } from './images.mjs'
 
 const API_BASE = process.env.MAKECLASS_API_BASE
   || 'https://asia-east1-makeclass-prod.cloudfunctions.net/api'
 
 const TOKEN_FILE = join(homedir(), '.makeclass', 'token')
+
+// ── 所有打 MakeClass 的請求自動帶版本 ────────────────────────────────────
+// 在這一層做而不是逐個 fetch 補：這支有 9 處 fetch，逐處補一定會漏掉一兩個，
+// 之後新增的也會忘記。只對 API_BASE 開頭的請求動手，不碰打 registry 那支。
+{
+  const _fetch = globalThis.fetch
+  const shown = new Set()
+  globalThis.fetch = async (url, init = {}) => {
+    if (typeof url !== 'string' || !url.startsWith(API_BASE)) return _fetch(url, init)
+    init = { ...init, headers: { ...(init.headers || {}), 'User-Agent': userAgent() } }
+    const res = await _fetch(url, init)
+    // 後端可以在任何回應裡塞 clientNotice（例如「你這一版有已知問題」）。
+    // 用 clone() 讀一份，呼叫端的 body 不受影響；同一則訊息只印一次。
+    try {
+      if ((res.headers.get('content-type') || '').includes('application/json')) {
+        const j = await res.clone().json()
+        const n = j && typeof j.clientNotice === 'string' ? j.clientNotice.trim() : ''
+        if (n && !shown.has(n)) { shown.add(n); console.log(`\n⚠️  ${n}`) }
+      }
+    } catch { /* 讀不到就算了，不影響主流程 */ }
+    return res
+  }
+}
 const PKG_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 
 function resolveToken(argToken) {
@@ -233,6 +257,14 @@ async function cmdDevlog(argv) {
 
   const visibility = fm.visibility === 'public' ? 'public' : 'unlisted'
 
+  // 正文裡的本地圖片：路徑相對於 devlog 檔案本身，不是你站在哪個目錄
+  const localImages = has('--no-images') ? [] : findLocalImages(body, dirname(resolvePath(file)))
+  const tooBig = oversizedImages(localImages)
+  if (tooBig.length) {
+    die(`圖片太大：${tooBig.map((i) => `${i.raw}（${(i.bytes / 1024 / 1024).toFixed(1)} MB）`).join('、')}`,
+      `單張上限 ${MAX_IMAGE_BYTES / 1024 / 1024} MB，請先壓縮`)
+  }
+
   console.log('\n─────────── MakeClass DevLog preview ───────────')
   console.log(`標題      ${fm.title}`)
   if (fm.subtitle) console.log(`副標      ${fm.subtitle}`)
@@ -241,6 +273,7 @@ async function cmdDevlog(argv) {
   if (fm.tags?.length) console.log(`標籤      ${[].concat(fm.tags).join(', ')}`)
   console.log(`能見度    ${visibility}${visibility === 'unlisted' ? '（不進公開牆）' : '  ⚠️ 公開'}`)
   console.log(`字數      ${body.length}`)
+  if (localImages.length) console.log(`圖片      ${localImages.length} 張本地圖片，送出後自動上傳`)
   if (maskedNames.length) console.log(`已遮罩    ${maskedNames.join(', ')}`)
   if (has('--no-mask-clients')) console.log('⚠️ 客戶名遮罩已關閉（--no-mask-clients）')
   console.log('────────────────────────────────────────────────\n')
@@ -274,9 +307,30 @@ async function cmdDevlog(argv) {
     die(`送出失敗 (${res.status})：${json.error || res.statusText}`)
   }
   console.log(`\n✓ 已送進 MakeClass：${json.url || json.pushId}`)
+  const pushId = json.pushId || String(json.url || '').split('/').pop()
+
+  // 圖片要掛在某一篇底下，所以跟 post 一樣是「先建 → 傳圖 → 用網址更新正文」。
+  // devlog/ingest 一次就建好整篇、沒有「先拿 id」這一步，所以只能事後補 PATCH。
+  // ⚠️ PATCH 走的是一般內容端點，權杖除了 devlog:write 還要有 pusher:write。
+  if (localImages.length) {
+    const recover = `草稿已建立但圖片沒補上：${json.url || pushId}（正文的圖仍指向本機路徑，站上不顯示）`
+    console.log(`\n找到 ${localImages.length} 張本地圖片，開始上傳：`)
+    const map = await uploadImagesOrDie(localImages, pushId, token, recover)
+    body = rewriteImageUrls(body, map)
+    const r2 = await fetch(`${API_BASE}/v1/makeclass/pusher/${encodeURIComponent(pushId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ articleBody: body }),
+    }).catch((e) => die(`連不上 API：${e.message}`, recover))
+    const j2 = await r2.json().catch(() => ({}))
+    // 這裡失敗不能默默略過：草稿會留著一堆指向本機路徑的圖，發布出去就是一篇沒有圖的文章
+    if (!r2.ok || j2.success === false) {
+      die(`圖片已上傳，但正文更新失敗（HTTP ${r2.status}）：${j2.error || '（伺服器沒說原因）'}`,
+        (r2.status === 403 ? '權杖要同時有 devlog:write 與「發表內容」(pusher:write)\n  ' : '') + recover)
+    }
+  }
 
   if (!has('--no-verify')) {
-    const pushId = json.pushId || String(json.url || '').split('/').pop()
     process.stdout.write('  回讀驗證中… ')
     let remote = null
     for (let i = 0; i < 3 && !remote; i++) {
@@ -321,6 +375,17 @@ function readTake(spec, extraWords) {
   if (existsSync(spec)) return readFileSync(spec, 'utf8')
   if (/^[.~/]|\.(md|txt)$/.test(spec)) die(`找不到檔案：${spec}`)
   return [spec, ...(extraWords || [])].join(' ')
+}
+
+// 圖片的辨識、上傳、換網址都在 ./images.mjs（post／devlog／mcslide 共用）。
+// 這裡只包一層：上傳失敗一律 die——走到這一步草稿已經建了，要把下一步講清楚。
+async function uploadImagesOrDie(images, pushId, token, recoverHint) {
+  try {
+    return await uploadImages(images, { pushId, token, apiBase: API_BASE })
+  } catch (e) {
+    if (e instanceof ImageUploadError) die(e.message, [e.hint, recoverHint].filter(Boolean).join('\n  '))
+    throw e
+  }
 }
 
 function parseArgsLoose(argv) {
@@ -396,6 +461,9 @@ async function cmdPost(argv) {
 
   const take = readTake(args.take, args._)
   const articleBody = readTake(args.body, args.take ? [] : args._)
+  // 正文裡的相對路徑要相對於「正文那個檔案」，不是相對於你現在站在哪個目錄
+  const bodyDir = typeof args.body === 'string' && existsSync(args.body) ? dirname(resolvePath(args.body)) : process.cwd()
+  const localImages = articleBody && !args['no-images'] ? findLocalImages(articleBody, bodyDir) : []
   const body = {
     title,
     ...(typeof args.subtitle === 'string' ? { subtitle: args.subtitle } : {}),
@@ -417,6 +485,12 @@ async function cmdPost(argv) {
     if (channelId) patch.channelId = channelId
     if (take) patch.contentSummary = take
     if (Object.keys(patch).length === 0) die('--update 沒有指定要改什麼', '至少給 --title / --body / --take 其中一個')
+
+    // 已經有 pushId，圖片可以先傳完再送正文，一次 PATCH 就定案
+    if (localImages.length && patch.articleBody) {
+      console.log(`\n找到 ${localImages.length} 張本地圖片，先上傳：`)
+      patch.articleBody = rewriteImageUrls(patch.articleBody, await uploadImagesOrDie(localImages, updateId, token))
+    }
 
     const r = await fetch(`${API_BASE}/v1/makeclass/pusher/${encodeURIComponent(updateId)}`, {
       method: 'PATCH', headers, body: JSON.stringify(patch),
@@ -448,8 +522,25 @@ async function cmdPost(argv) {
   }
   const pushId = json.pushId
 
+  // 圖片要掛在某一篇底下，所以順序是「先建草稿拿 pushId → 傳圖 → 用網址更新正文」。
+  // 中間那一瞬間草稿裡的圖連結還是本機路徑（站上不顯示），但它是草稿、還沒發布，不影響讀者。
+  let finalBody = articleBody
+  if (localImages.length) {
+    console.log(`\n找到 ${localImages.length} 張本地圖片，開始上傳：`)
+    finalBody = rewriteImageUrls(articleBody, await uploadImagesOrDie(localImages, pushId, token, `草稿還在 https://makeclass.me/pusher/${pushId}/review —— 重跑：mcpost post --update ${pushId} --body <檔案>`))
+    const r2 = await fetch(`${API_BASE}/v1/makeclass/pusher/${encodeURIComponent(pushId)}`, {
+      method: 'PATCH', headers, body: JSON.stringify({ articleBody: finalBody }),
+    }).catch((e) => die(`連不上 API：${e.message}`))
+    const j2 = await r2.json().catch(() => ({}))
+    // ⚠️ 這裡失敗不能默默略過：草稿會留著一堆指向本機路徑的圖，發布出去就是一篇沒有圖的文章
+    if (!r2.ok || j2.success === false) {
+      die(`圖片已上傳，但正文更新失敗（HTTP ${r2.status}）：${j2.error || '（伺服器沒說原因）'}`,
+        `草稿還在 https://makeclass.me/pusher/${pushId}/review —— 重跑：mcpost post --update ${pushId} --body <檔案>`)
+    }
+  }
+
   if (!args['no-verify']) {
-    await verifyPostPersisted({ pushId, headers, expectedBody: articleBody || undefined })
+    await verifyPostPersisted({ pushId, headers, expectedBody: finalBody || undefined })
   }
 
   const url = `https://makeclass.me/pusher/${pushId}/review`
@@ -499,6 +590,48 @@ async function cmdChannels(argv) {
 // ─────────────────────────────────────────────────────────────────────────
 function localVersion() {
   try { return JSON.parse(readFileSync(join(PKG_DIR, 'package.json'), 'utf8')).version } catch { return null }
+}
+
+/**
+ * 所有 API 呼叫都帶這個 UA，後端才知道對面是哪一版 mcpost。
+ * 「這一版有已知問題」這種話只有伺服器講得出來——本機查 registry 只知道「有新版」。
+ */
+function userAgent() {
+  return `mcpost/${localVersion() || '0.0.0'} (node ${process.versions.node})`
+}
+
+// ── 版本檢查的快取：一天查一次就夠，不要每個指令都打 registry ──
+const VERSION_CACHE = join(homedir(), '.makeclass', 'version-check.json')
+const VERSION_CACHE_MS = 24 * 60 * 60 * 1000
+
+function cachedLatest() {
+  try {
+    const c = JSON.parse(readFileSync(VERSION_CACHE, 'utf8'))
+    if (Date.now() - c.at < VERSION_CACHE_MS) return c.latest
+  } catch { /* 沒快取或壞掉就當作沒有 */ }
+  return undefined
+}
+function putCachedLatest(latest) {
+  try {
+    mkdirSync(dirname(VERSION_CACHE), { recursive: true })
+    writeFileSync(VERSION_CACHE, JSON.stringify({ at: Date.now(), latest }))
+  } catch { /* 寫不進去不影響功能 */ }
+}
+
+/**
+ * 指令跑完後順手提醒版本落後。
+ * ⚠️ 絕對不能讓它影響主流程：查不到、逾時、寫不了快取都靜默略過——
+ * 使用者是來發文的，不是來等版本檢查的。
+ */
+async function nudgeIfOutdated() {
+  try {
+    const mine = localVersion()
+    if (!mine) return
+    let latest = cachedLatest()
+    if (latest === undefined) { latest = await latestVersion(); putCachedLatest(latest) }
+    if (!latest || !isOlder(mine, latest)) return
+    console.log(`\n⚠️  有新版 ${latest}（你的是 ${mine}）：npm install -g mcpost`)
+  } catch { /* 提醒失敗不是錯誤 */ }
 }
 
 async function latestVersion() {
@@ -627,9 +760,13 @@ mcpost — 把開發對話或觀點文直接發到 MakeClass（不需要 clone �
   mcpost install-skill                    幫 Claude Code 與 Codex 裝 /mcpost 與 /mcslide
   mcpost doctor                           檢查版本、權杖、skill 指到哪（環境不對時先跑這個）
 
-devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --token <t>
+devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --no-images  --token <t>
 post 選項：  --title <t>  --subtitle <t>  --source <url>  --take <文字|檔案|->
-             --body <檔案>  --channel <id 或 @handle>  --post  --update <pushId>  --no-verify
+             --body <檔案>  --channel <id 或 @handle>  --post  --update <pushId>
+             --no-verify  --no-images（不要自動上傳正文裡的本地圖片）
+
+圖文並茂：正文裡寫 ![說明](./img/a.png) 就好，post／devlog／mcslide 都會自動把本地圖片
+上傳到 MakeClass 再換成 https 網址（站上只顯示 https 的圖）。路徑相對於正文那個檔案。
 
 做簡報用另一個指令（同一包、同一支權杖）：
   mcslide <file.md> [--source <pushId>] [--channel @handle] [--dry-run]
@@ -640,14 +777,32 @@ Token 讀取順序：--token > $MAKECLASS_TOKEN > ~/.makeclass/token
 `)
 }
 
+// 測試要 import 這支拿純函式，但這個檔案同時是 CLI 入口。
+//
+// 🚨 1.4.0 這裡用 `import.meta.url === pathToFileURL(process.argv[1]).href` 判斷「是不是被
+//    直接執行」，結果**全域安裝的 mcpost 完全不會動**：npm 的 bin 是 symlink，
+//    process.argv[1] 是 symlink 路徑、import.meta.url 是解析後的真實路徑，兩者永遠不相等
+//    → 每一個指令都靜默什麼都不做，連錯誤訊息都沒有。
+//
+//    改用環境變數：CLI 是這支的主要身分，**預設一定執行**，只有測試明確關掉
+//    （package.json 的 test script 帶 MCPOST_NO_MAIN=1）。路徑長什麼樣都不影響。
+export { findLocalImages, rewriteImageUrls, IMG_MIME, MAX_IMAGE_BYTES }
+
+if (!process.env.MCPOST_NO_MAIN) {
+
 const [, , cmd, ...rest] = process.argv
 switch (cmd) {
   case 'token': await cmdToken(rest); break
-  case 'devlog': await cmdDevlog(rest); break
-  case 'post': await cmdPost(rest); break
-  case 'channels': await cmdChannels(rest); break
+  // 這幾支跑完順手提醒版本落後（一天查一次，查不到就靜默略過）。
+  // 以前只有 install-skill 會提醒，等於裝完就再也不會被告知有新版。
+  case 'devlog': await cmdDevlog(rest); await nudgeIfOutdated(); break
+  case 'post': await cmdPost(rest); await nudgeIfOutdated(); break
+  case 'channels': await cmdChannels(rest); await nudgeIfOutdated(); break
   case 'install-skill': cmdInstallSkill(); await warnIfOutdated(); break
   case 'doctor': await cmdDoctor(); break
+  case '--version': case '-v': console.log(localVersion() || '(讀不到版本)'); break
   case '--help': case '-h': case undefined: printHelp(); break
   default: die(`不認得的指令：${cmd}`, '跑 mcpost --help 看用法')
+}
+
 }
