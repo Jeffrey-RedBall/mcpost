@@ -15,27 +15,19 @@ import { readFileSync } from "node:fs"
 import { resolve, dirname } from "node:path"
 import { homedir } from "node:os"
 import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, MAX_IMAGE_BYTES } from "./images.mjs"
+import { installApiFetch, nudgeIfOutdated } from "./update-check.mjs"
 
 const API = process.env.MAKECLASS_API || "https://asia-east1-makeclass-prod.cloudfunctions.net/api"
 
 
-// 跟 mcpost 同一套：所有打 MakeClass 的請求帶上版本，後端才認得出是哪一版。
-// 逐個 fetch 補會漏，所以在這一層做。
-function mcslideUserAgent() {
-    try {
-        const p = new URL('../package.json', import.meta.url)
-        return `mcpost/${JSON.parse(readFileSync(p, 'utf8')).version} (mcslide; node ${process.versions.node})`
-    } catch { return `mcpost/0.0.0 (mcslide)` }
-}
-{
-    const _fetch = globalThis.fetch
-    globalThis.fetch = (url, init = {}) => {
-        if (typeof url === 'string' && url.startsWith(API)) {
-            init = { ...init, headers: { ...(init.headers || {}), 'User-Agent': mcslideUserAgent() } }
-        }
-        return _fetch(url, init)
-    }
-}const die = (msg, hint) => { console.error(`✗ ${msg}${hint ? `\n  ${hint}` : ""}`); process.exit(1) }
+// 跟 mcpost 同一套（./update-check.mjs）：所有打 MakeClass 的請求帶上版本，並印出後端的升級提醒。
+// ⚠️ 1.5.0 以前這裡只送版本、不印提醒，也不查新版——只用 mcslide 的人永遠不知道有新版。
+installApiFetch(API, { tool: "mcslide" })
+
+/** 成功結束：先順手提醒版本落後（一天查一次），再離開 */
+async function done() { await nudgeIfOutdated(); process.exit(0) }
+
+const die = (msg, hint) => { console.error(`✗ ${msg}${hint ? `\n  ${hint}` : ""}`); process.exit(1) }
 
 const argv = process.argv.slice(2)
 const flag = (n) => argv.includes(n)
@@ -99,7 +91,7 @@ if (argv[0] === "from") {
     console.log(`✓ ${d.pageCount} 頁草稿，${d.notesCount} 頁有講者備註（素材：${d.sourceKind}）`)
     console.log(`  ${d.url}`)
     console.log(`  扣 ${d.cost} 點${d.balance != null ? `，餘額 ${d.balance}` : ""}　看過內容後到 makeclass.me/slides 按發布`)
-    process.exit(0)
+    await done()
 }
 
 const src = file || argv.find((a) => a.endsWith(".md"))
@@ -137,7 +129,7 @@ if (sourcePushId) console.log(`  來源：${sourcePushId}`)
 if (localImages.length) console.log(`  圖片：${localImages.length} 張本地圖片，送出後自動上傳`)
 console.log()
 
-if (flag("--dry-run")) { console.log("（--dry-run，沒有送出）"); process.exit(0) }
+if (flag("--dry-run")) { console.log("（--dry-run，沒有送出）"); await done() }
 
 const channelId = val("--channel") ? await resolveChannel(val("--channel")) : null
 const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token()}` }
@@ -156,7 +148,7 @@ if (updateId) {
     const j = await r.json().catch(() => ({}))
     if (!r.ok || !j.success) die(`更新失敗（${r.status}）：${j.error || ""}`)
     console.log(`✓ 已更新：https://makeclass.me/learn/${updateId}`)
-    process.exit(0)
+    await done()
 }
 
 const r = await fetch(`${API}/v1/makeclass/pusher/create`, {
@@ -186,3 +178,4 @@ if (localImages.length) {
 }
 console.log(`✓ 已建立草稿：https://makeclass.me/learn/${j.pushId}`)
 console.log(`  管理：https://makeclass.me/slides　（看過內容，確認後按發布）`)
+await done()
