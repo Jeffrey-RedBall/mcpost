@@ -454,7 +454,9 @@ async function cmdPost(argv) {
     ...(take ? { contentSummary: take } : {}),
     ...(articleBody ? { articleBody } : {}),
     ...(args.post ? { contentType: 'post' } : {}),
-    visibility: 'public',
+    // 不送 visibility：後端對 PAT 一律 unlisted（functions/utils/visibilityPolicy.js）。
+    // 以前這裡寫死 'public'，看程式碼會以為發出去就是公開的——實際上那是
+    // 後端當時漏了強制，不是這支的權限。
   }
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
 
@@ -527,7 +529,7 @@ async function cmdPost(argv) {
 
   const url = `https://makeclass.me/pusher/${pushId}/review`
   console.log(`\n✓ 已建立草稿：${url}`)
-  console.log('  草稿——請到上面的連結看過內容，確認後按發布')
+  console.log('  草稿、不進公開牆——到上面的連結看過內容，確認後自己按發布')
 }
 
 // ─────────────────────────────────────────────────────────────────────────
