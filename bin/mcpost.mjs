@@ -430,11 +430,44 @@ async function resolveChannel(spec) {
   return j.data.id
 }
 
+/** 文章網址或 pushId → pushId。認 /learn/<id>、/pusher/<id>(/review)，或直接給 id */
+export function pushIdFrom(input) {
+  const s = String(input || '').trim()
+  const m = s.match(/\/(?:learn|pusher)\/([a-z0-9]{20,40})(?:[/?#]|$)/i)
+  if (m) return m[1]
+  return /^[a-z0-9]{20,40}$/i.test(s) ? s : null
+}
+
 async function cmdPost(argv) {
   const args = parseArgsLoose(argv)
   const token = resolveToken(typeof args.token === 'string' ? args.token : null)
   if (!token) die('找不到 token', '跑 `mcpost token` 設定一次，或 export MAKECLASS_TOKEN=mck_xxx')
   if (!token.startsWith('mck_')) die('token 格式不對（應以 mck_ 開頭）')
+
+  // ── --from：拿站上一篇當參考，加上我的觀點，交給站上的 AI 寫成 Post 草稿（扣 3 點）──
+  // 跟網頁 learn 頁的「發成 Post」打同一支 /to-post。產出一律是 unlisted 草稿，人審完才發布。
+  if (typeof args.from === 'string') {
+    const id = pushIdFrom(args.from)
+    if (!id) die(`看不懂 --from：${args.from}`, '給 MakeClass 文章網址（https://makeclass.me/learn/<id>）或 pushId')
+    const take = readTake(args.take, args._)
+    if (!take || take.trim().length < 10) die('缺少 --take（你的觀點，至少 10 個字）', '這篇 Post 的主角是你的想法；--take 可以是文字、檔案路徑或 -（從 stdin 讀）')
+    console.log('\n交給站上的 AI 寫（約半分鐘，會使用 3 點）…')
+    const r = await fetch(`${API_BASE}/v1/makeclass/pusher/${encodeURIComponent(id)}/to-post`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ take }),
+    }).catch((e) => die(`連不上 API：${e.message}`))
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok || !j.success) {
+      if (j.code === 'INSUFFICIENT') die(j.error, '到 makeclass.me 的「點數」頁儲值後再試')
+      die(`失敗（${r.status}）：${j.error || ''}`, r.status === 403 ? '權杖要勾「發表內容」（pusher:write）' : '')
+    }
+    const d = j.data || {}
+    console.log(`✓ 已寫成草稿：${d.title || ''}（參考素材：${d.sourceKind}）`)
+    console.log(`  ${d.reviewUrl}`)
+    console.log(`  扣 ${d.cost} 點${d.balance != null ? `，餘額 ${d.balance}` : ''}　到上面的網址看過、改過再按發布`)
+    return
+  }
 
   const title = typeof args.title === 'string' ? args.title.trim() : ''
   if (!title && typeof args.update !== 'string') die('缺少 --title')
@@ -679,6 +712,7 @@ mcpost — 把開發對話或觀點文直接發到 MakeClass（不需要 clone �
 devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --no-images  --token <t>
 post 選項：  --title <t>  --subtitle <t>  --source <url>  --take <文字|檔案|->
              --body <檔案>  --channel <id 或 @handle>  --post  --update <pushId>
+             --from <文章網址或 pushId> --take <觀點>：拿站上一篇當參考，AI 寫成你的 Post 草稿（3 點）
              --no-verify  --no-images（不要自動上傳正文裡的本地圖片）
 
 圖文並茂：正文裡寫 ![說明](./img/a.png) 就好，post／devlog／mcslide 都會自動把本地圖片

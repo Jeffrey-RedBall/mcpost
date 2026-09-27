@@ -106,6 +106,15 @@ mcpost post --title "標題" --post --body 正文.md
 
 `--post` 是「人寫的觀點文」，不加就是 AI Note。兩支指令走不同端點，不要混用。
 
+**拿站上一篇當參考、加上自己的觀點寫成 Post**：不用自己寫正文，交給站上的 AI 寫：
+
+```bash
+mcpost post --from https://makeclass.me/learn/<id> --take "我的觀點…"   # 扣 3 點，失敗自動退
+```
+
+`--take` 是這篇 Post 的主軸（至少 10 個字，可以是文字、檔案路徑或 `-`）；那篇文章是引用素材。
+產出是 unlisted 草稿，回傳審閱網址，人看過才發布。跟網頁文章頁的「發成 Post」是同一個功能。
+
 **圖文並茂**：正文裡直接寫 `![說明](./img/a.png)`，路徑相對於正文那個檔案。
 `mcpost post`、`mcpost devlog`（1.5.0 起）、`mcslide`（1.5.0 起）都會自動把本地圖片上傳到 MakeClass 再換成 https 網址——站上正文**只顯示
 https 的圖片**（http 與 `data:` 一律不渲染），所以不先上傳的話一張都不會出現。
