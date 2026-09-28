@@ -23,7 +23,7 @@ import { homedir } from 'node:os'
 import { join, dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
-import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, IMG_MIME, MAX_IMAGE_BYTES } from './images.mjs'
+import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, IMG_MIME, MAX_IMAGE_BYTES, resolveCoverFile, setCover } from './images.mjs'
 import { installApiFetch, localVersion, latestVersion, isOlder, nudgeIfOutdated } from './update-check.mjs'
 
 const API_BASE = process.env.MAKECLASS_API_BASE
@@ -241,6 +241,9 @@ async function cmdDevlog(argv) {
 
   // 正文裡的本地圖片：路徑相對於 devlog 檔案本身，不是你站在哪個目錄
   const localImages = has('--no-images') ? [] : findLocalImages(body, dirname(resolvePath(file)))
+  // 封面：--cover 相對於你站的目錄；front matter 的 cover: 相對於 devlog 檔案
+  const cover = argOf('--cover') ? coverOrDie(argOf('--cover'), process.cwd())
+    : fm.cover ? coverOrDie(String(fm.cover), dirname(resolvePath(file))) : null
   const tooBig = oversizedImages(localImages)
   if (tooBig.length) {
     die(`圖片太大：${tooBig.map((i) => `${i.raw}（${(i.bytes / 1024 / 1024).toFixed(1)} MB）`).join('、')}`,
@@ -256,6 +259,7 @@ async function cmdDevlog(argv) {
   console.log(`能見度    ${visibility}${visibility === 'unlisted' ? '（不進公開牆）' : '  ⚠️ 公開'}`)
   console.log(`字數      ${body.length}`)
   if (localImages.length) console.log(`圖片      ${localImages.length} 張本地圖片，送出後自動上傳`)
+  if (cover) console.log(`封面      ${cover.raw}（送出後上傳，不讓 AI 自動畫）`)
   if (maskedNames.length) console.log(`已遮罩    ${maskedNames.join(', ')}`)
   if (has('--no-mask-clients')) console.log('⚠️ 客戶名遮罩已關閉（--no-mask-clients）')
   console.log('────────────────────────────────────────────────\n')
@@ -282,7 +286,8 @@ async function cmdDevlog(argv) {
   const res = await fetch(`${API_BASE}/v1/makeclass/devlog/ingest`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ frontmatter: { ...fm, visibility }, body }),
+    // cover 是本機路徑，只給 mcpost 自己用，不送給後端
+    body: JSON.stringify({ frontmatter: { ...fm, visibility, cover: undefined }, body }),
   })
   const json = await res.json().catch(() => ({}))
   if (!res.ok || !json.success) {
@@ -310,6 +315,11 @@ async function cmdDevlog(argv) {
       die(`圖片已上傳，但正文更新失敗（HTTP ${r2.status}）：${j2.error || '（伺服器沒說原因）'}`,
         (r2.status === 403 ? '權杖要同時有 devlog:write 與「發表內容」(pusher:write)\n  ' : '') + recover)
     }
+  }
+
+  if (cover) {
+    await setCoverOrDie(cover, pushId, token,
+      `文章已建立但封面沒設上：${json.url || pushId} —— 重跑：mcpost post --update ${pushId} --cover ${cover.raw}`)
   }
 
   if (!has('--no-verify')) {
@@ -361,6 +371,27 @@ function readTake(spec, extraWords) {
 
 // 圖片的辨識、上傳、換網址都在 ./images.mjs（post／devlog／mcslide 共用）。
 // 這裡只包一層：上傳失敗一律 die——走到這一步草稿已經建了，要把下一步講清楚。
+/** --cover／front matter cover：送出前先檢查，不合格就在建草稿之前停下 */
+function coverOrDie(raw, baseDir) {
+  if (!raw) return null
+  try {
+    return resolveCoverFile(raw, baseDir)
+  } catch (e) {
+    if (e instanceof ImageUploadError) die(e.message, e.hint)
+    throw e
+  }
+}
+
+async function setCoverOrDie(cover, pushId, token, recoverHint) {
+  console.log('\n設定封面：')
+  try {
+    return await setCover({ pushId, token, apiBase: API_BASE, cover })
+  } catch (e) {
+    if (e instanceof ImageUploadError) die(e.message, [e.hint, recoverHint].filter(Boolean).join('\n  '))
+    throw e
+  }
+}
+
 async function uploadImagesOrDie(images, pushId, token, recoverHint) {
   try {
     return await uploadImages(images, { pushId, token, apiBase: API_BASE })
@@ -479,6 +510,8 @@ async function cmdPost(argv) {
   // 正文裡的相對路徑要相對於「正文那個檔案」，不是相對於你現在站在哪個目錄
   const bodyDir = typeof args.body === 'string' && existsSync(args.body) ? dirname(resolvePath(args.body)) : process.cwd()
   const localImages = articleBody && !args['no-images'] ? findLocalImages(articleBody, bodyDir) : []
+  // --cover 相對於你站的目錄；建草稿之前先檢查，不合格就不建
+  const cover = typeof args.cover === 'string' ? coverOrDie(args.cover, process.cwd()) : null
   const body = {
     title,
     ...(typeof args.subtitle === 'string' ? { subtitle: args.subtitle } : {}),
@@ -501,7 +534,7 @@ async function cmdPost(argv) {
     if (articleBody) patch.articleBody = articleBody
     if (channelId) patch.channelId = channelId
     if (take) patch.contentSummary = take
-    if (Object.keys(patch).length === 0) die('--update 沒有指定要改什麼', '至少給 --title / --body / --take 其中一個')
+    if (Object.keys(patch).length === 0 && !cover) die('--update 沒有指定要改什麼', '至少給 --title / --body / --take / --cover 其中一個')
 
     // 已經有 pushId，圖片可以先傳完再送正文，一次 PATCH 就定案
     if (localImages.length && patch.articleBody) {
@@ -509,21 +542,24 @@ async function cmdPost(argv) {
       patch.articleBody = rewriteImageUrls(patch.articleBody, await uploadImagesOrDie(localImages, updateId, token))
     }
 
-    const r = await fetch(`${API_BASE}/v1/makeclass/pusher/${encodeURIComponent(updateId)}`, {
-      method: 'PATCH', headers, body: JSON.stringify(patch),
-    }).catch((e) => die(`連不上 API：${e.message}`))
-    const j = await r.json().catch(() => ({}))
-    if (!r.ok || j.success === false) {
-      die(`更新失敗（HTTP ${r.status}）：${j.error || '（伺服器沒說原因）'}`,
-        r.status === 403 ? '只有作者本人可以改，且權杖要有 pusher:write'
-          : r.status === 404 ? '找不到這個 pushId' : undefined)
+    if (Object.keys(patch).length) {
+      const r = await fetch(`${API_BASE}/v1/makeclass/pusher/${encodeURIComponent(updateId)}`, {
+        method: 'PATCH', headers, body: JSON.stringify(patch),
+      }).catch((e) => die(`連不上 API：${e.message}`))
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok || j.success === false) {
+        die(`更新失敗（HTTP ${r.status}）：${j.error || '（伺服器沒說原因）'}`,
+          r.status === 403 ? '只有作者本人可以改，且權杖要有 pusher:write'
+            : r.status === 404 ? '找不到這個 pushId' : undefined)
+      }
     }
+    if (cover) await setCoverOrDie(cover, updateId, token)
     if (!args['no-verify']) {
       await verifyPostPersisted({ pushId: updateId, headers, expectedBody: articleBody || undefined })
     }
 
     const url = `https://makeclass.me/learn/${updateId}`
-    console.log(`\n✓ 已更新：${Object.keys(patch).join('、')}`)
+    console.log(`\n✓ 已更新：${[...Object.keys(patch), ...(cover ? ['封面'] : [])].join('、')}`)
     console.log(`  ${url}`)
     return
   }
@@ -554,6 +590,11 @@ async function cmdPost(argv) {
       die(`圖片已上傳，但正文更新失敗（HTTP ${r2.status}）：${j2.error || '（伺服器沒說原因）'}`,
         `草稿還在 https://makeclass.me/pusher/${pushId}/review —— 重跑：mcpost post --update ${pushId} --body <檔案>`)
     }
+  }
+
+  if (cover) {
+    await setCoverOrDie(cover, pushId, token,
+      `草稿還在 https://makeclass.me/pusher/${pushId}/review —— 重跑：mcpost post --update ${pushId} --cover ${cover.raw}`)
   }
 
   if (!args['no-verify']) {
@@ -709,9 +750,10 @@ mcpost — 把開發對話或觀點文直接發到 MakeClass（不需要 clone �
   mcpost install-skill                    幫 Claude Code 與 Codex 裝 /mcpost 與 /mcslide
   mcpost doctor                           檢查版本、權杖、skill 指到哪（環境不對時先跑這個）
 
-devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --no-images  --token <t>
+devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --no-images  --cover <圖片>  --token <t>
 post 選項：  --title <t>  --subtitle <t>  --source <url>  --take <文字|檔案|->
              --body <檔案>  --channel <id 或 @handle>  --post  --update <pushId>
+             --cover <圖片>：封面（本機 .jpg／.png／.webp，建議 1200×630），不讓 AI 自動畫；devlog 也收，或寫在 front matter 的 cover:
              --from <文章網址或 pushId> --take <觀點>：拿站上一篇當參考，AI 寫成你的 Post 草稿（3 點）
              --no-verify  --no-images（不要自動上傳正文裡的本地圖片）
 

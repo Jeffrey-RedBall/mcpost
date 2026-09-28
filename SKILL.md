@@ -121,6 +121,17 @@ https 的圖片**（http 與 `data:` 一律不渲染），所以不先上傳的�
 不想自動上傳就加 `--no-images`。SVG 不收（可夾帶 script），請先轉成 PNG。
 devlog 補圖走一般內容端點，權杖除了 `devlog:write` 還要勾「發表內容」（`pusher:write`）。
 
+**封面（1.6.0 起）**：加 `--cover 封面.jpg`（devlog 也可以寫在 front matter 的 `cover: ./封面.jpg`）。
+**沒給封面的話**，作者在網頁打開審閱頁時系統會請 AI 自動畫一張——常常畫錯（標誌、人物、文字都可能走樣）。
+重要的文章建議自己做：
+
+- 規格：**1200×630**（分享到 LINE、FB 的比例），`.jpg`／`.png`／`.webp`，9 MB 以內；只收本機檔，不收網址
+- 做法：寫一頁 1200×630 的 HTML（標題＋一張主視覺；中文用 Noto Serif TC／Noto Sans TC），用 headless Chrome 截圖：
+  `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars --window-size=1200,630 --virtual-time-budget=8000 --screenshot=cover.png file:///絕對路徑/cover.html`
+- 系列文章用同一個版型、每篇換顏色或編號，一眼看得出是一套但不是同一篇
+- 換已發出那篇的封面：`mcpost post --update <pushId> --cover 新封面.jpg`
+- ⚠️ 截完**自己看一次**再送（文字是否被切掉、有沒有斷行斷在奇怪的地方）
+
 ### 6. 回報
 
 把 preview 的重點（標題／能見度／遮罩了誰）講給使用者聽，附上檔案路徑或回傳的 URL。
