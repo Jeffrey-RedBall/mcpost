@@ -40,6 +40,12 @@ mcslide <檔.md> --dry-run          # 自己寫好，先看頁面清單
 # 一般文章 / 觀點文
 mcpost post --title "標題" --post --body 正文.md
 
+# 自己做封面（1200×630，本機 jpg／png／webp）；不給的話網頁會請 AI 自動畫
+mcpost post --title "標題" --post --body 正文.md --cover 封面.jpg
+
+# 換掉已經發出那篇的封面
+mcpost post --update <pushId> --cover 新封面.jpg
+
 # 開發知識（DevLog，進 Vibe Coding 專區）
 mcpost devlog 我的devlog.md --dry-run   # 先預覽，會做機密掃描
 mcpost devlog 我的devlog.md             # 確認沒問題再送
