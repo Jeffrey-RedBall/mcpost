@@ -46,6 +46,12 @@ mcpost post --title "標題" --post --body 正文.md --cover 封面.jpg
 # 換掉已經發出那篇的封面
 mcpost post --update <pushId> --cover 新封面.jpg
 
+# 掛附件（影片、PPT、PDF、ZIP…可重複；單檔 500 MB，直接進儲存空間）
+mcpost post --title "標題" --post --body 正文.md --attach 影片.mp4 --attach 教材包.zip
+mcslide 簡報.md --cover 封面.jpg --attach 授課簡報.pptx
+
+# 或把標題、封面、附件寫在正文檔開頭（--- title: / cover: / attach: [a, b] ---），指令只剩 --body
+
 # 開發知識（DevLog，進 Vibe Coding 專區）
 mcpost devlog 我的devlog.md --dry-run   # 先預覽，會做機密掃描
 mcpost devlog 我的devlog.md             # 確認沒問題再送

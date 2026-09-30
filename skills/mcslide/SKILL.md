@@ -66,6 +66,8 @@ curl -s "$API/<pushId>/transcript" -H "Authorization: Bearer $TOKEN" | jq -r '.d
    不想自動上傳就加 `--no-images`。SVG 不收，請先轉成 PNG；單張上限 9 MB。
 3. **front matter 一定要有 `title`**，封面才有東西；`seal` 兩個字（例：教材、提案），
    `speaker` 不填會用你的預設頻道。
+4. **封面與附件（1.7.0 起）**：`--cover 封面.jpg` 自己給封面（不讓網頁請 AI 畫）；`--attach 檔案` 掛可編輯的 PPTX、PDF、影片（可重複，單檔 500 MB）。
+   也可寫在 front matter：`cover: ./封面.jpg`、`attach: [./deck.pptx, ./deck.pdf]`。
 
 改寫原則（同 `/slides-html`）：一頁一件事、模組開頭給 `#` 章名頁、每頁都寫
 `<!-- notes: -->`（講者要說的話）、金句獨立成頁、數字附出處、

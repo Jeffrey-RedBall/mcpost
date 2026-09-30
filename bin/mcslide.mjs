@@ -2,8 +2,8 @@
 /**
  * mcslide — 把一份 Slides Markdown 送上 MakeClass，變成站上可播的簡報草稿。
  *
- *   mcslide <檔.md> --title "…" [--source <pushId>] [--channel @handle] [--dry-run]
- *   mcslide <檔.md> --update <pushId>            改既有簡報
+ *   mcslide <檔.md> --title "…" [--source <pushId>] [--channel @handle] [--cover 封面.jpg] [--attach 檔案]… [--dry-run]
+ *   mcslide <檔.md> --update <pushId>            改既有簡報（也可只 --cover／--attach）
  *   （正文裡的 ![](./img/a.png) 會自動上傳再換成網址；不要就加 --no-images）
  *   mcslide from <pushId> [--pages 20]           讓站上的 AI 讀那篇做一份（使用點數）
  *
@@ -14,7 +14,7 @@
 import { readFileSync } from "node:fs"
 import { resolve, dirname } from "node:path"
 import { homedir } from "node:os"
-import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, MAX_IMAGE_BYTES } from "./images.mjs"
+import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, MAX_IMAGE_BYTES, resolveCoverFile, setCover, resolveAttachFile, attachFiles } from "./images.mjs"
 import { installApiFetch, nudgeIfOutdated } from "./update-check.mjs"
 
 const API = process.env.MAKECLASS_API || "https://asia-east1-makeclass-prod.cloudfunctions.net/api"
@@ -32,6 +32,8 @@ const die = (msg, hint) => { console.error(`✗ ${msg}${hint ? `\n  ${hint}` : "
 const argv = process.argv.slice(2)
 const flag = (n) => argv.includes(n)
 const val = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : null }
+/** 同一個旗標的每一個值（--attach a --attach b） */
+const vals = (n) => argv.flatMap((a, i) => (a === n && argv[i + 1] && !argv[i + 1].startsWith("--") ? [argv[i + 1]] : []))
 const file = argv.find((a) => !a.startsWith("--") && argv[argv.indexOf(a) - 1]?.startsWith("--") !== true)
 
 function token() {
@@ -95,7 +97,7 @@ if (argv[0] === "from") {
 }
 
 const src = file || argv.find((a) => a.endsWith(".md"))
-if (!src) die("用法：mcslide <檔.md> --title \"…\" [--source <pushId>] [--channel @handle] [--dry-run]\n  或：mcslide from <pushId> [--pages 20]\n  權杖：先跑 mcpost token 設定一次")
+if (!src) die("用法：mcslide <檔.md> --title \"…\" [--source <pushId>] [--channel @handle] [--cover 封面.jpg] [--attach 檔案]… [--dry-run]\n  或：mcslide from <pushId> [--pages 20]\n  權杖：先跑 mcpost token 設定一次")
 const md = readFileSync(resolve(src), "utf8")
 const info = inspect(md)
 validate(md, info)
@@ -107,6 +109,22 @@ const sourcePushId = val("--source")
 
 // 正文裡的本地圖片：路徑相對於這份 .md，不是你站在哪個目錄
 const localImages = flag("--no-images") ? [] : findLocalImages(md, dirname(resolve(src)))
+// 封面與附件（1.7.0）：--cover／--attach 相對於你站的目錄；front matter 的 cover:／attach: 相對於這份 .md
+function orDie(fn) { try { return fn() } catch (e) { if (e instanceof ImageUploadError) die(e.message, e.hint); throw e } }
+const cover = val("--cover") ? orDie(() => resolveCoverFile(val("--cover"), process.cwd()))
+    : info.meta.cover ? orDie(() => resolveCoverFile(info.meta.cover, dirname(resolve(src)))) : null
+const attachArgs = vals("--attach")
+const attachments = attachArgs.length ? attachArgs.map((a) => orDie(() => resolveAttachFile(a, process.cwd())))
+    : info.meta.attach ? String(info.meta.attach).replace(/^\[|\]$/g, "").split(",").map((x) => x.trim()).filter(Boolean).map((a) => orDie(() => resolveAttachFile(a, dirname(resolve(src))))) : []
+async function coverAndAttachOrDie(pushId, recover) {
+    try {
+        if (cover) { console.log("設定封面："); await setCover({ pushId, token: token(), apiBase: API, cover }) }
+        if (attachments.length) { console.log(`掛 ${attachments.length} 個附件：`); await attachFiles(attachments, { pushId, token: token(), apiBase: API }) }
+    } catch (e) {
+        if (e instanceof ImageUploadError) die(e.message, [e.hint, recover].filter(Boolean).join("\n  "))
+        throw e
+    }
+}
 const tooBig = oversizedImages(localImages)
 if (tooBig.length) die(`圖片太大：${tooBig.map((i) => `${i.raw}（${(i.bytes / 1024 / 1024).toFixed(1)} MB）`).join("、")}`,
     `單張上限 ${MAX_IMAGE_BYTES / 1024 / 1024} MB，請先壓縮`)
@@ -127,6 +145,8 @@ for (const [k, p] of info.pages.slice(0, 12).entries()) console.log(`   ${String
 if (info.pages.length > 12) console.log(`   … 還有 ${info.pages.length - 12} 頁`)
 if (sourcePushId) console.log(`  來源：${sourcePushId}`)
 if (localImages.length) console.log(`  圖片：${localImages.length} 張本地圖片，送出後自動上傳`)
+if (cover) console.log(`  封面：${cover.raw}`)
+if (attachments.length) console.log(`  附件：${attachments.map((a) => a.name).join("、")}`)
 console.log()
 
 if (flag("--dry-run")) { console.log("（--dry-run，沒有送出）"); await done() }
@@ -147,6 +167,7 @@ if (updateId) {
     })
     const j = await r.json().catch(() => ({}))
     if (!r.ok || !j.success) die(`更新失敗（${r.status}）：${j.error || ""}`)
+    await coverAndAttachOrDie(updateId, "簡報內容已更新；修好後只重跑 --cover／--attach 那部分")
     console.log(`✓ 已更新：https://makeclass.me/learn/${updateId}`)
     await done()
 }
@@ -176,6 +197,7 @@ if (localImages.length) {
     // 失敗不能默默略過：草稿會留著指向本機路徑的圖，播放時一張都不顯示
     if (!r2.ok || j2.success === false) die(`圖片已上傳，但正文更新失敗（HTTP ${r2.status}）：${j2.error || "（伺服器沒說原因）"}`, recover)
 }
+await coverAndAttachOrDie(j.pushId, `草稿已建立：https://makeclass.me/learn/${j.pushId}\n  修好後重跑：mcslide ${src} --update ${j.pushId} --cover … --attach …`)
 console.log(`✓ 已建立草稿：https://makeclass.me/learn/${j.pushId}`)
 console.log(`  管理：https://makeclass.me/slides　（看過內容，確認後按發布）`)
 await done()

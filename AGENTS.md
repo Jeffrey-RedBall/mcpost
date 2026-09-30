@@ -85,6 +85,7 @@ mcpost install-skill    # 建 symlink 到 ~/.claude/skills/
 - 預設 `visibility: unlisted`，不要自己改成 public
 - 掃到機密會直接中止，**沒有 --force**；被擋下就回去改寫那幾行
 - 封面：`--cover 封面.jpg`（1200×630，本機 jpg／png／webp）；沒給的話網頁審閱頁會請 AI 自動畫，常畫錯——重要文章自己做一張
+- 附件：`--attach 檔案`（可重複；影片、PPT、PDF、ZIP，單檔 500 MB）→ 出現在附件區。正文檔開頭可寫設定區（title／subtitle／cover／attach）
 ```
 
 ## Codex 用法：做簡報（mcslide）
