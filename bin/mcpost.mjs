@@ -23,7 +23,7 @@ import { homedir } from 'node:os'
 import { join, dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
-import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, IMG_MIME, MAX_IMAGE_BYTES, resolveCoverFile, setCover } from './images.mjs'
+import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, IMG_MIME, MAX_IMAGE_BYTES, resolveCoverFile, setCover, resolveAttachFile, attachFiles } from './images.mjs'
 import { installApiFetch, localVersion, latestVersion, isOlder, nudgeIfOutdated } from './update-check.mjs'
 
 const API_BASE = process.env.MAKECLASS_API_BASE
@@ -244,6 +244,10 @@ async function cmdDevlog(argv) {
   // 封面：--cover 相對於你站的目錄；front matter 的 cover: 相對於 devlog 檔案
   const cover = argOf('--cover') ? coverOrDie(argOf('--cover'), process.cwd())
     : fm.cover ? coverOrDie(String(fm.cover), dirname(resolvePath(file))) : null
+  // 附件：--attach 相對於你站的目錄；front matter 的 attach: 相對於 devlog 檔案
+  const attachArgs = argv.flatMap((a, i) => (a === '--attach' && argv[i + 1] ? [argv[i + 1]] : []))
+  const attachments = attachArgs.length ? attachmentsOrDie(attachArgs, process.cwd())
+    : fm.attach ? attachmentsOrDie([].concat(fm.attach), dirname(resolvePath(file))) : []
   const tooBig = oversizedImages(localImages)
   if (tooBig.length) {
     die(`圖片太大：${tooBig.map((i) => `${i.raw}（${(i.bytes / 1024 / 1024).toFixed(1)} MB）`).join('、')}`,
@@ -260,6 +264,7 @@ async function cmdDevlog(argv) {
   console.log(`字數      ${body.length}`)
   if (localImages.length) console.log(`圖片      ${localImages.length} 張本地圖片，送出後自動上傳`)
   if (cover) console.log(`封面      ${cover.raw}（送出後上傳，不讓 AI 自動畫）`)
+  if (attachments.length) console.log(`附件      ${attachments.map((a) => a.name).join('、')}`)
   if (maskedNames.length) console.log(`已遮罩    ${maskedNames.join(', ')}`)
   if (has('--no-mask-clients')) console.log('⚠️ 客戶名遮罩已關閉（--no-mask-clients）')
   console.log('────────────────────────────────────────────────\n')
@@ -287,7 +292,7 @@ async function cmdDevlog(argv) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     // cover 是本機路徑，只給 mcpost 自己用，不送給後端
-    body: JSON.stringify({ frontmatter: { ...fm, visibility, cover: undefined }, body }),
+    body: JSON.stringify({ frontmatter: { ...fm, visibility, cover: undefined, attach: undefined }, body }),
   })
   const json = await res.json().catch(() => ({}))
   if (!res.ok || !json.success) {
@@ -321,6 +326,7 @@ async function cmdDevlog(argv) {
     await setCoverOrDie(cover, pushId, token,
       `文章已建立但封面沒設上：${json.url || pushId} —— 重跑：mcpost post --update ${pushId} --cover ${cover.raw}`)
   }
+  await attachOrDie(attachments, pushId, token, `文章已建立但附件沒掛完：${json.url || pushId} —— 重跑：mcpost post --update ${pushId} --attach <檔案>`)
 
   if (!has('--no-verify')) {
     process.stdout.write('  回讀驗證中… ')
@@ -392,6 +398,51 @@ async function setCoverOrDie(cover, pushId, token, recoverHint) {
   }
 }
 
+/** --attach／front matter attach：送出前逐個檢查，不合格就在建草稿之前停下 */
+function attachmentsOrDie(list, baseDir) {
+  const items = [].concat(list || []).filter((x) => x && x !== true)
+  try {
+    return items.map((raw) => resolveAttachFile(String(raw), baseDir))
+  } catch (e) {
+    if (e instanceof ImageUploadError) die(e.message, e.hint)
+    throw e
+  }
+}
+
+async function attachOrDie(files, pushId, token, recoverHint) {
+  if (!files.length) return []
+  console.log(`\n掛 ${files.length} 個附件：`)
+  try {
+    return await attachFiles(files, { pushId, token, apiBase: API_BASE })
+  } catch (e) {
+    if (e instanceof ImageUploadError) die(e.message, [e.hint, recoverHint].filter(Boolean).join('\n  '))
+    throw e
+  }
+}
+
+/**
+ * --body 檔開頭的設定區（1.7.0）：title／subtitle／cover／attach／channel／source 可以寫在檔案裡，
+ * 指令列的旗標優先。attach 可以是逗號分隔或 YAML 清單。回傳 { meta, body }（body 已去掉設定區）。
+ */
+function splitBodyFrontMatter(raw) {
+  const m = String(raw).match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/)
+  if (!m) return { meta: {}, body: raw }
+  const meta = {}
+  const lines = m[1].split(/\r?\n/)
+  for (let i = 0; i < lines.length; i++) {
+    const kv = lines[i].match(/^([A-Za-z_][\w-]*):\s*(.*)$/)
+    if (!kv) continue
+    const [, key, rest] = kv
+    if (rest.trim() === '') {
+      const list = []
+      while (i + 1 < lines.length && /^\s*-\s+/.test(lines[i + 1])) list.push(lines[++i].replace(/^\s*-\s+/, '').trim())
+      meta[key] = list
+    } else meta[key] = rest.trim().replace(/^["']|["']$/g, '')
+  }
+  if (typeof meta.attach === 'string') meta.attach = meta.attach.split(',').map((x) => x.trim()).filter(Boolean)
+  return { meta, body: m[2] }
+}
+
 async function uploadImagesOrDie(images, pushId, token, recoverHint) {
   try {
     return await uploadImages(images, { pushId, token, apiBase: API_BASE })
@@ -409,7 +460,12 @@ function parseArgsLoose(argv) {
       const key = a.slice(2)
       const next = argv[i + 1]
       if (next === undefined || next.startsWith('--')) out[key] = true
-      else { out[key] = next; i++ }
+      else {
+        // 同一個旗標給多次（--attach a --attach b）就收成陣列
+        if (out[key] !== undefined && out[key] !== true) out[key] = [].concat(out[key], next)
+        else out[key] = next
+        i++
+      }
     } else out._.push(a)
   }
   return out
@@ -500,18 +556,30 @@ async function cmdPost(argv) {
     return
   }
 
+  // --body 檔開頭可以有設定區（title／subtitle／cover／attach／channel／source），旗標優先
+  const bodyFile = typeof args.body === 'string' && existsSync(args.body) ? args.body : null
+  const bodyDir = bodyFile ? dirname(resolvePath(bodyFile)) : process.cwd()
+  let bodyMeta = {}
+  if (bodyFile) {
+    const split = splitBodyFrontMatter(readFileSync(bodyFile, 'utf8'))
+    bodyMeta = split.meta
+    for (const k of ['title', 'subtitle', 'channel', 'source']) if (args[k] === undefined && typeof bodyMeta[k] === 'string') args[k] = bodyMeta[k]
+    if (args.cover === undefined && typeof bodyMeta.cover === 'string') args.cover = resolvePath(bodyDir, bodyMeta.cover)
+    if (args.attach === undefined && Array.isArray(bodyMeta.attach) && bodyMeta.attach.length) args.attach = bodyMeta.attach.map((a) => resolvePath(bodyDir, a))
+    if (Object.keys(bodyMeta).length) args._bodyText = split.body
+  }
   const title = typeof args.title === 'string' ? args.title.trim() : ''
-  if (!title && typeof args.update !== 'string') die('缺少 --title')
+  if (!title && typeof args.update !== 'string') die('缺少 --title', bodyFile ? '也可以寫在正文檔開頭：---\ntitle: 標題\n---' : undefined)
 
   const channelId = typeof args.channel === 'string' ? await resolveChannel(args.channel) : null
 
   const take = readTake(args.take, args._)
-  const articleBody = readTake(args.body, args.take ? [] : args._)
+  const articleBody = args._bodyText !== undefined ? args._bodyText : readTake(args.body, args.take ? [] : args._)
   // 正文裡的相對路徑要相對於「正文那個檔案」，不是相對於你現在站在哪個目錄
-  const bodyDir = typeof args.body === 'string' && existsSync(args.body) ? dirname(resolvePath(args.body)) : process.cwd()
   const localImages = articleBody && !args['no-images'] ? findLocalImages(articleBody, bodyDir) : []
-  // --cover 相對於你站的目錄；建草稿之前先檢查，不合格就不建
+  // --cover／--attach 相對於你站的目錄；建草稿之前先檢查，不合格就不建
   const cover = typeof args.cover === 'string' ? coverOrDie(args.cover, process.cwd()) : null
+  const attachments = attachmentsOrDie(args.attach, process.cwd())
   const body = {
     title,
     ...(typeof args.subtitle === 'string' ? { subtitle: args.subtitle } : {}),
@@ -534,7 +602,7 @@ async function cmdPost(argv) {
     if (articleBody) patch.articleBody = articleBody
     if (channelId) patch.channelId = channelId
     if (take) patch.contentSummary = take
-    if (Object.keys(patch).length === 0 && !cover) die('--update 沒有指定要改什麼', '至少給 --title / --body / --take / --cover 其中一個')
+    if (Object.keys(patch).length === 0 && !cover && !attachments.length) die('--update 沒有指定要改什麼', '至少給 --title / --body / --take / --cover / --attach 其中一個')
 
     // 已經有 pushId，圖片可以先傳完再送正文，一次 PATCH 就定案
     if (localImages.length && patch.articleBody) {
@@ -554,12 +622,13 @@ async function cmdPost(argv) {
       }
     }
     if (cover) await setCoverOrDie(cover, updateId, token)
+    await attachOrDie(attachments, updateId, token)
     if (!args['no-verify']) {
       await verifyPostPersisted({ pushId: updateId, headers, expectedBody: articleBody || undefined })
     }
 
     const url = `https://makeclass.me/learn/${updateId}`
-    console.log(`\n✓ 已更新：${[...Object.keys(patch), ...(cover ? ['封面'] : [])].join('、')}`)
+    console.log(`\n✓ 已更新：${[...Object.keys(patch), ...(cover ? ['封面'] : []), ...(attachments.length ? [`附件×${attachments.length}`] : [])].join('、')}`)
     console.log(`  ${url}`)
     return
   }
@@ -596,6 +665,7 @@ async function cmdPost(argv) {
     await setCoverOrDie(cover, pushId, token,
       `草稿還在 https://makeclass.me/pusher/${pushId}/review —— 重跑：mcpost post --update ${pushId} --cover ${cover.raw}`)
   }
+  await attachOrDie(attachments, pushId, token, `草稿還在 https://makeclass.me/pusher/${pushId}/review —— 重跑：mcpost post --update ${pushId} --attach <檔案>`)
 
   if (!args['no-verify']) {
     await verifyPostPersisted({ pushId, headers, expectedBody: finalBody || undefined })
@@ -750,10 +820,12 @@ mcpost — 把開發對話或觀點文直接發到 MakeClass（不需要 clone �
   mcpost install-skill                    幫 Claude Code 與 Codex 裝 /mcpost 與 /mcslide
   mcpost doctor                           檢查版本、權杖、skill 指到哪（環境不對時先跑這個）
 
-devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --no-images  --cover <圖片>  --token <t>
+devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --no-images  --cover <圖片>  --attach <檔案>  --token <t>
 post 選項：  --title <t>  --subtitle <t>  --source <url>  --take <文字|檔案|->
              --body <檔案>  --channel <id 或 @handle>  --post  --update <pushId>
              --cover <圖片>：封面（本機 .jpg／.png／.webp，建議 1200×630），不讓 AI 自動畫；devlog 也收，或寫在 front matter 的 cover:
+             --attach <檔案>（可重複）：影片、PPT、PDF、ZIP… 掛成附件（直傳，單檔 500 MB）；devlog 也收，或 front matter 的 attach:
+             正文檔開頭可寫設定區：--- title: / subtitle: / cover: / attach: [a, b] / channel: / source: ---
              --from <文章網址或 pushId> --take <觀點>：拿站上一篇當參考，AI 寫成你的 Post 草稿（3 點）
              --no-verify  --no-images（不要自動上傳正文裡的本地圖片）
 

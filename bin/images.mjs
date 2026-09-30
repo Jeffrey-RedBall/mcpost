@@ -9,7 +9,7 @@
 // 1.4.x 只有 post 有，devlog 與 mcslide 送出的圖全是本機路徑、站上一張都不顯示。
 // 這支**沒有任何副作用**（不讀 argv、不 patch fetch、不 exit），誰 import 都安全。
 // ─────────────────────────────────────────────────────────────────────────
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, statSync } from 'node:fs'
 import { resolve as resolvePath, isAbsolute, basename, extname } from 'node:path'
 
 export const IMG_MIME = {
@@ -149,4 +149,87 @@ export async function setCover({ pushId, token, apiBase, cover, log = (s) => pro
       r.status === 403 ? '權杖要有「發表內容」(pusher:write)，而且只有作者本人能改' : undefined)
   }
   return url
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 附件（--attach，1.7.0）：任何檔案（影片、PPT、PDF、ZIP…）掛成文章／簡報的附件，出現在站上的附件區
+//
+// 走「直傳」三步（後端 #374，2026-10-01）：
+//   1. POST /pusher/:id/upload-url → 拿到一個只對這個路徑有效的上傳網址（GCS 可續傳 session）
+//   2. 把檔案 PUT 到那個網址——直接進 Storage，不經 Cloud Functions 的 10 MB 限制
+//   3. POST /pusher/:id/register-asset → 登記成附件（後端會先確認檔案真的在）
+// 以前只能用 upload-asset（≤ 9 MB）而且登記那一步只認網頁登入，檔案傳上去也不會出現在附件區。
+// ─────────────────────────────────────────────────────────────────────────
+export const MAX_ATTACH_BYTES = 500 * 1024 * 1024
+const ATTACH_MIME = {
+  ...IMG_MIME,
+  '.pdf': 'application/pdf',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.key': 'application/vnd.apple.keynote',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.zip': 'application/zip',
+  '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.m4v': 'video/x-m4v',
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.wav': 'audio/wav', '.aac': 'audio/aac',
+  '.md': 'text/markdown', '.txt': 'text/plain', '.json': 'application/json', '.html': 'text/html', '.csv': 'text/csv',
+}
+
+/** 檢查附件檔：存在、是檔案、不超過上限。回傳 { raw, abs, name, size, mime }；不合格丟 ImageUploadError */
+export function resolveAttachFile(raw, baseDir) {
+  const r = String(raw || '').trim()
+  if (!r) throw new ImageUploadError('--attach 後面要接檔案路徑')
+  if (/^(https?:|data:|\/\/)/i.test(r)) throw new ImageUploadError(`附件只收本機檔案：${r}`, '先下載到電腦再給路徑')
+  const abs = isAbsolute(r) ? r : resolvePath(baseDir, r)
+  let st
+  try { st = statSync(abs) } catch { throw new ImageUploadError(`找不到附件：${r}`, `找的位置：${abs}`) }
+  if (!st.isFile()) throw new ImageUploadError(`附件不是檔案：${r}`)
+  if (st.size === 0) throw new ImageUploadError(`附件是空檔：${r}`)
+  if (st.size > MAX_ATTACH_BYTES) {
+    throw new ImageUploadError(`附件太大：${r}（${(st.size / 1024 / 1024).toFixed(1)} MB）`, `單檔上限 ${MAX_ATTACH_BYTES / 1024 / 1024} MB`)
+  }
+  const ext = extname(abs).toLowerCase()
+  return { raw: r, abs, name: basename(abs), size: st.size, mime: ATTACH_MIME[ext] || 'application/octet-stream' }
+}
+
+/** 逐個上傳並登記。回傳 [{ name, fileUrl, type }]；失敗丟 ImageUploadError（已完成的不會重傳，由呼叫端決定怎麼收尾） */
+export async function attachFiles(files, { pushId, token, apiBase, log = (s) => process.stdout.write(s) }) {
+  const out = []
+  const auth = { Authorization: `Bearer ${token}` }
+  const jsonHeaders = { ...auth, 'Content-Type': 'application/json' }
+  for (const [i, f] of files.entries()) {
+    log(`  附件 ${i + 1}/${files.length}：${f.name}（${(f.size / 1024 / 1024).toFixed(1)} MB）… `)
+    // 1. 要上傳網址
+    let r = await fetch(`${apiBase}/v1/makeclass/pusher/${encodeURIComponent(pushId)}/upload-url`, {
+      method: 'POST', headers: jsonHeaders, body: JSON.stringify({ fileName: f.name, mimeType: f.mime, fileSize: f.size }),
+    }).catch((e) => { throw new ImageUploadError(`連不上 API：${e.message}`) })
+    let j = await r.json().catch(() => ({}))
+    if (!r.ok || !j.success || !j.uploadUrl) {
+      log('✗\n')
+      throw new ImageUploadError(`要上傳網址失敗（HTTP ${r.status}）：${j.error || '（伺服器沒說原因）'}`,
+        r.status === 404 ? '伺服器還沒更新到支援直傳（需要 2026-10-01 之後的版本）'
+          : r.status === 403 ? '權杖要有「發表內容」(pusher:write)，而且只有作者本人能傳' : undefined)
+    }
+    // 2. 直傳（單次 PUT 整個檔；session 網址只對這一個路徑有效）
+    const put = await fetch(j.uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': j.contentType || f.mime, 'Content-Length': String(f.size) },
+      body: readFileSync(f.abs),
+    }).catch((e) => { throw new ImageUploadError(`上傳失敗：${e.message}`) })
+    if (!put.ok) { log('✗\n'); throw new ImageUploadError(`上傳失敗（HTTP ${put.status}）：${f.name}`) }
+    // 3. 登記成附件
+    r = await fetch(`${apiBase}/v1/makeclass/pusher/${encodeURIComponent(pushId)}/register-asset`, {
+      method: 'POST', headers: jsonHeaders,
+      body: JSON.stringify({ type: j.type, fileUrl: j.fileUrl, fileName: f.name, mimeType: f.mime, fileSize: f.size }),
+    }).catch((e) => { throw new ImageUploadError(`連不上 API：${e.message}`) })
+    j = await r.json().catch(() => ({}))
+    if (!r.ok || !j.success) {
+      log('✗\n')
+      throw new ImageUploadError(`檔案已上傳，但登記附件失敗（HTTP ${r.status}）：${j.error || '（伺服器沒說原因）'}`)
+    }
+    log('OK\n')
+    out.push({ name: f.name, fileUrl: j.asset?.fileUrl, type: j.asset?.type })
+  }
+  return out
 }
