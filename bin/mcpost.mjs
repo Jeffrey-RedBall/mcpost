@@ -835,6 +835,7 @@ post 選項：  --title <t>  --subtitle <t>  --source <url>  --take <文字|檔�
 做簡報用另一個指令（同一包、同一支權杖）：
   mcslide <file.md> [--source <pushId>] [--channel @handle] [--dry-run]
   mcslide from <pushId> [--pages 20]      交給站上的 AI 讀那篇來做
+  mcslide narration <pushId> <音檔資料夾>   既有簡報配聲音（1.8.0；一頁一檔 01.mp3…）
 
 Token 讀取順序：--token > $MAKECLASS_TOKEN > ~/.makeclass/token
 環境變數 MAKECLASS_API_BASE 可覆寫 API 位址（預設正式站）

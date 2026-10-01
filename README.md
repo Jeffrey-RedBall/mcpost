@@ -49,6 +49,8 @@ mcpost post --update <pushId> --cover 新封面.jpg
 # 掛附件（影片、PPT、PDF、ZIP…可重複；單檔 500 MB，直接進儲存空間）
 mcpost post --title "標題" --post --body 正文.md --attach 影片.mp4 --attach 教材包.zip
 mcslide 簡報.md --cover 封面.jpg --attach 授課簡報.pptx
+mcslide 簡報.md --narration ./音檔/        # 導讀（1.8.0）：一頁一檔 01.mp3…，聲音講到哪翻到哪
+mcslide narration <pushId> ./音檔/         # 既有簡報補導讀
 
 # 或把標題、封面、附件寫在正文檔開頭（--- title: / cover: / attach: [a, b] ---），指令只剩 --body
 
