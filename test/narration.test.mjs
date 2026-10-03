@@ -16,15 +16,15 @@ const PUSH_ID = 'cmnarr0001'
 const hasFfmpeg = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0
 const DECK = `---\ntitle: 導讀測試\n---\n\n# 第一章\n\n## 一\n\n- a\n\n## 二\n\n- b\n`   // 封面＋章＋2 內容＝4 頁
 
-function tone(file, sec) {
-  const r = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', `sine=frequency=440:duration=${sec}`, '-ar', '22050', '-ac', '1', '-b:a', '32k', file])
+function tone(file, sec, rate = 22050) {
+  const r = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', `sine=frequency=440:duration=${sec}`, '-ar', String(rate), '-ac', '1', '-b:a', '32k', file])
   assert.equal(r.status, 0, 'ffmpeg 產測試音檔')
 }
-function dir(n, { secs = [1, 2, 1.5, 1], text = true } = {}) {
+function dir(n, { secs = [1, 2, 1.5, 1], text = true, rates = null } = {}) {
   const d = mkdtempSync(join(tmpdir(), 'mcslide-narr-'))
   const audio = join(d, '音檔'); mkdirSync(audio)
   for (let i = 1; i <= n; i++) {
-    if (hasFfmpeg) tone(join(audio, `${String(i).padStart(2, '0')}.mp3`), secs[i - 1] ?? 1); else writeFileSync(join(audio, `${String(i).padStart(2, '0')}.mp3`), 'x')
+    if (hasFfmpeg) tone(join(audio, `${String(i).padStart(2, '0')}.mp3`), secs[i - 1] ?? 1, rates ? rates[(i - 1) % rates.length] : 22050); else writeFileSync(join(audio, `${String(i).padStart(2, '0')}.mp3`), 'x')
     if (text) writeFileSync(join(audio, `${String(i).padStart(2, '0')}.txt`), `第${i}頁第一句。第二句！`)
   }
   writeFileSync(join(d, 'deck.md'), DECK)
@@ -121,4 +121,15 @@ test('mcslide narration <pushId> 音檔/：既有簡報補導讀；--dry-run 不
   assert.equal(api.state.narration.timings.length, 4)
   assert.equal(api.state.narration.transcript, null)
   assert.match(r.out, /導讀已掛上/)
+})
+
+test('🚨 各頁取樣率不同（16000／32000／44100）：串出來的實際長度＝各頁＋空白，起點對得上聲音（2026-10-03 事故）', { skip: !hasFfmpeg && '沒有 ffmpeg' }, () => {
+  const { audio } = dir(4, { secs: [3, 4, 3, 2], rates: [32000, 16000, 44100, 32000], text: false })
+  const b = buildNarration(resolveNarrationDir(audio, '/'), { gapSec: 1, log: () => {} })
+  const r = spawnSync('ffmpeg', ['-nostats', '-i', b.mp3, '-f', 'null', '-'], { encoding: 'utf8' })
+  const m = [...r.stderr.matchAll(/time=(\d+):(\d+):(\d+\.\d+)/g)].pop()
+  const actual = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3])
+  // 預期：3+4+3+2 ＝ 12 秒音檔，每頁後各 1 秒空白 ＝ 4 秒 → 16 秒。舊寫法（concat demuxer）會只剩約 12 秒。
+  assert.ok(Math.abs(actual - 16) < 0.4, `實際 ${actual.toFixed(2)} 秒，應約 16`)
+  assert.ok(Math.abs(b.starts[1] - 4) < 0.1 && Math.abs(b.starts[2] - 9) < 0.1 && Math.abs(b.starts[3] - 13) < 0.1, `起點 ${b.starts.join(', ')}`)
 })

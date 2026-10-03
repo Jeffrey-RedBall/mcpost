@@ -14,7 +14,7 @@ export const DEFAULT_GAP_SEC = 0.6
 
 /** ffmpeg／ffprobe 在不在；不在就丟 ImageUploadError（訊息給人看，含安裝法） */
 export function requireFfmpeg() {
-  for (const bin of ['ffmpeg', 'ffprobe']) {
+  for (const bin of ['ffmpeg']) {
     const r = spawnSync(bin, ['-version'], { stdio: 'ignore' })
     if (r.error || r.status !== 0) {
       throw new ImageUploadError(`需要 ${bin} 來串接音檔，但系統裡找不到`, 'macOS：brew install ffmpeg　Ubuntu：sudo apt install ffmpeg　Windows：winget install ffmpeg')
@@ -60,10 +60,17 @@ export function checkNarrationCount(files, pageCount) {
   }
 }
 
+/**
+ * 音檔長度（秒）＝實際解碼出來的長度，不是 metadata 的估值。
+ * ⚠️ 2026-10-03 事故：ffprobe 的 format duration 對 VBR／無標頭的 mp3 會差，而且更根本的是
+ *    各檔取樣率不同時不能直接 concat（見 buildNarration）。這裡量解碼長度，後面串接用 concat 濾鏡，
+ *    兩邊用同一把尺，起點才對得上聲音。
+ */
 function probeSec(abs) {
-  const r = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', abs], { encoding: 'utf8' })
-  const d = Number(String(r.stdout || '').trim())
-  if (r.status !== 0 || !Number.isFinite(d) || d <= 0) throw new ImageUploadError(`讀不到音檔長度：${basename(abs)}`, String(r.stderr || '').trim().slice(0, 200))
+  const r = spawnSync('ffmpeg', ['-nostats', '-i', abs, '-f', 'null', '-'], { encoding: 'utf8' })
+  const m = [...String(r.stderr || '').matchAll(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/g)].pop()
+  const d = m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : NaN
+  if (r.status !== 0 || !Number.isFinite(d) || d <= 0) throw new ImageUploadError(`讀不到音檔長度：${basename(abs)}`, String(r.stderr || '').trim().slice(-200))
   return d
 }
 
@@ -90,17 +97,34 @@ export function buildNarration(files, { gapSec = DEFAULT_GAP_SEC, log = (s) => p
   const durationSec = +(t - gapSec).toFixed(2)
   if (!concat) return { mp3: null, starts, durationSec, transcript: transcript.length ? transcript : null, perPage }
   const work = mkdtempSync(join(tmpdir(), 'mcslide-narr-'))
-  const gap = join(work, 'gap.wav')
-  let r = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'anullsrc=r=22050:cl=mono', '-t', String(gapSec), gap])
-  if (r.status !== 0) throw new ImageUploadError('ffmpeg 產不出頁間空白', String(r.stderr || '').slice(0, 200))
-  const list = join(work, 'list.txt')
-  const esc = (p) => p.replace(/'/g, "'\\''")
-  writeFileSync(list, perPage.flatMap((p) => [`file '${esc(p.abs)}'`, `file '${esc(gap)}'`]).join('\n'))
+  // ⚠️ 不能用 concat demuxer 串「不同取樣率」的檔案：2026-10-03 用 32000 Hz 的 TTS 檔配 22050 Hz 的空白檔，
+  //    空白被整段丟掉，起點卻照「有空白」算，換頁越後面越慢（最後一頁慢 33 秒）。
+  //    改用 concat 濾鏡：每個輸入先 aresample 成同一格式再接，空白用 anullsrc 在濾鏡裡產生，長度才是真的。
+  const RATE = 22050
+  const chain = []
+  const labels = []
+  perPage.forEach((p, i) => {
+    chain.push(`[${i}:a]aresample=${RATE},aformat=sample_fmts=fltp:channel_layouts=mono[a${i}]`)
+    labels.push(`[a${i}]`)
+    if (gapSec > 0) { chain.push(`anullsrc=r=${RATE}:cl=mono:d=${gapSec}[g${i}]`); labels.push(`[g${i}]`) }
+  })
+  chain.push(`${labels.join('')}concat=n=${labels.length}:v=0:a=1[out]`)
+  // 濾鏡直接放命令列（約 8 KB）。不用 -filter_complex_script：ffmpeg 9 已移除，舊版又沒有 -/filter_complex，只有內嵌寫法新舊都通。
+  const graph = chain.join(';')
   const mp3 = join(work, 'narration.mp3')
   log(`  串接 ${files.length} 個音檔（頁間 ${gapSec} 秒）… `)
-  r = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', list, '-ar', '22050', '-ac', '1', '-c:a', 'libmp3lame', '-b:a', '64k', mp3], { encoding: 'utf8' })
-  if (r.status !== 0) { log('✗\n'); throw new ImageUploadError('ffmpeg 串接失敗', String(r.stderr || '').slice(0, 300)) }
-  log(`OK，${(durationSec / 60).toFixed(1)} 分鐘\n`)
+  const inputs = perPage.flatMap((p) => ['-i', p.abs])
+  const r = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', ...inputs, '-filter_complex', graph, '-map', '[out]', '-ar', String(RATE), '-ac', '1', '-c:a', 'libmp3lame', '-b:a', '64k', mp3], { encoding: 'utf8' })
+  if (r.status !== 0) { log('✗\n'); throw new ImageUploadError('ffmpeg 串接失敗', String(r.stderr || '').slice(-300)) }
+  // 自我檢查：串出來的實際長度要＝預期（各檔＋空白），差超過 1 秒就不准上傳。
+  //   起點是照預期算的，實際對不上，上線後就是「換頁比聲音慢」，而且每頁都錯、很難發現。
+  const actual = probeSec(mp3)
+  const expected = perPage.reduce((a, p) => a + p.sec, 0) + gapSec * (perPage.length - 1) + (gapSec > 0 ? gapSec : 0)
+  if (Math.abs(actual - expected) > 1) {
+    log('✗\n')
+    throw new ImageUploadError(`串接後長度對不上：實際 ${actual.toFixed(1)} 秒，預期 ${expected.toFixed(1)} 秒`, '不上傳，避免換頁時間點偏掉。請回報這個錯誤與音檔格式')
+  }
+  log(`OK，${(durationSec / 60).toFixed(1)} 分鐘（實測 ${(actual / 60).toFixed(1)} 分鐘，吻合）\n`)
   return { mp3, starts, durationSec, transcript: transcript.length ? transcript : null, perPage }
 }
 
