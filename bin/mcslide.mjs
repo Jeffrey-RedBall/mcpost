@@ -19,6 +19,7 @@ import { homedir } from "node:os"
 import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, MAX_IMAGE_BYTES, resolveCoverFile, setCover, resolveAttachFile, attachFiles } from "./images.mjs"
 import { installApiFetch, nudgeIfOutdated } from "./update-check.mjs"
 import { resolveNarrationDir, checkNarrationCount, buildNarration, attachNarration, DEFAULT_GAP_SEC } from "./narration.mjs"
+import { resolveTheme, lecturePreview } from "./theme.mjs"
 
 const API = process.env.MAKECLASS_API || "https://asia-east1-makeclass-prod.cloudfunctions.net/api"
 
@@ -186,6 +187,15 @@ if (localImages.length) console.log(`  圖片：${localImages.length} 張本地�
 if (cover) console.log(`  封面：${cover.raw}`)
 if (attachments.length) console.log(`  附件：${attachments.map((a) => a.name).join("、")}`)
 if (narrBuilt) console.log(`  導讀：${narrFiles.length} 個音檔，共 ${(narrBuilt.durationSec / 60).toFixed(1)} 分鐘${narrBuilt.transcript ? `，字幕 ${narrBuilt.transcript.length} 句` : "，沒有字幕"}`)
+// 主題（1.9.0）：預告「講堂」主題下哪幾頁會變大字報、哪幾頁標題有強調色；主題名打錯就提醒
+{
+    const th = resolveTheme(info.meta.theme)
+    if (th.unknown) console.log(`  ⚠ 主題「${th.unknown}」站上不認得，會用預設的青瓷墨字（要用新主題請寫 theme: 講堂）`)
+    else if (th.theme === "lecture") {
+        const pv = lecturePreview(info.pages)
+        console.log(`  主題：講堂${pv.big.length ? ` · 大字報頁 ${pv.big.join("、")}` : ""}${pv.accent.length ? ` · 強調色標題 ${pv.accent.length} 頁` : ""}`)
+    }
+}
 console.log()
 
 if (flag("--dry-run")) { console.log("（--dry-run，沒有送出）"); await done() }
