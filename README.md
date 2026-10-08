@@ -32,6 +32,7 @@ mcpost install-skill    # 幫 Claude Code 裝 /mcpost 與 /mcslide
 ```bash
 mcslide from <pushId> --pages 20   # 交給站上的 AI 讀那篇來做
 mcslide <檔.md> --dry-run          # 自己寫好，先看頁面清單
+# front matter 加 theme: 講堂 → 粗黑體、大字報頁、每頁換底色（1.9.0；不寫＝青瓷墨字）
 ```
 
 ## 用法
