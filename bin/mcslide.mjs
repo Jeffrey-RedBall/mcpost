@@ -7,7 +7,8 @@
  *   mcslide <檔.md> --narration ./音檔/           導讀（1.8.0）：一頁一檔 01.mp3…，串成一支、每頁起點自動算
  *   mcslide narration <pushId> ./音檔/           既有簡報補導讀（或換聲音）
  *   （正文裡的 ![](./img/a.png) 會自動上傳再換成網址；不要就加 --no-images）
- *   mcslide from <pushId> [--pages 20]           讓站上的 AI 讀那篇做一份（使用點數）
+ *   mcslide from <pushId> [--pages 20] [--focus "只講定價那一段"]
+ *                                              讓站上的 AI 讀那篇做一份（使用點數）；--focus＝這份簡報要針對什麼
  *
  * 跟 slides-html 的差別：那支產**本機 HTML 檔**（自用、可放 SVG），這支送**站上**
  * （讀者看得到、可分享、有可見度）。站內渲染刻意不解析 HTML，所以這裡會擋下 <svg>／<figure>。
@@ -80,13 +81,15 @@ async function resolveChannel(handle) {
 // 權杖打得動 /to-slides（scope 需 pusher:write）。
 if (argv[0] === "from") {
     const id = argv[1]
-    if (!id || id.startsWith("--")) die("用法：mcslide from <pushId> [--pages 20]")
+    if (!id || id.startsWith("--")) die("用法：mcslide from <pushId> [--pages 20] [--focus \"只講定價那一段\"]")
     const pages = parseInt(val("--pages") || "15", 10)
-    console.log(`\n交給站上的 AI 產 ${pages} 頁（約一分鐘，會使用點數）…`)
+    // 這份簡報要針對什麼（重點／作法／只講某段／全文），200 字內；留空＝整份平均做。伺服器會再截一次
+    const focus = (val("--focus") || "").replace(/\s+/g, " ").trim().slice(0, 200)
+    console.log(`\n交給站上的 AI 產 ${pages} 頁（約一分鐘，會使用點數）…${focus ? `\n  針對：${focus}` : ""}`)
     const r = await fetch(`${API}/v1/makeclass/pusher/${id}/to-slides`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
-        body: JSON.stringify({ pages }),
+        body: JSON.stringify({ pages, ...(focus ? { focus } : {}) }),
     }).catch((e) => die(`連不上 API：${e.message}`))
     const j = await r.json().catch(() => ({}))
     if (!r.ok || !j.success) {
