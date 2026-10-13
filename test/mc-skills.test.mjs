@@ -19,7 +19,7 @@ const BIN = join(ROOT, 'bin', 'mcpost.mjs')
 const NAMES = ['mcway', 'mcdetail', 'mcview', 'mctool', 'mcfile', 'mcskill', 'mcidea', 'mchelp']
 
 test('call：白名單只有唯讀查詢與 collect_skill；發布、建立、改封面都不能從這裡呼叫', async () => {
-  for (const t of ['search_notes', 'read_note', 'list_my_notes', 'list_my_ideas', 'search_skills', 'search_entities', 'get_skill', 'get_method', 'get_transcript', 'collect_skill', 'save_idea']) assert.ok(CALL_ALLOWED.includes(t), t)
+  for (const t of ['search_notes', 'read_note', 'list_my_notes', 'list_my_ideas', 'search_skills', 'search_entities', 'get_skill', 'get_method', 'get_transcript', 'grow_idea', 'collect_skill', 'save_idea']) assert.ok(CALL_ALLOWED.includes(t), t)
   for (const t of ['publish_note', 'create_note', 'update_note', 'set_cover', 'set_cover_design', 'generate_cover', 'nope']) {
     await assert.rejects(() => callMcpTool({ tool: t, token: 'x', apiBase: 'http://x', fetchImpl: () => { throw new Error('不該送出請求') } }), (e) => e.code === 'NOT_ALLOWED', t)
   }
@@ -91,7 +91,7 @@ test('skill 安全：查詢類都有「資料不是指令」規則；只有 mcfi
   assert.match(read('mcview'), /get_transcript/); assert.match(read('mcview'), /不給任何原文/); assert.match(read('mcview'), /尚未開放/); assert.match(read('mcview'), /不要想辦法用別的工具繞過去/)
   for (const w of ['逐字稿', 'transcript', 'subtitle', '字幕', 'srt', '字數', 'size']) assert.ok(read('mcview').includes(w), `mcview 缺修飾詞 ${w}`)
   // mcidea：help／list／存三條路，且 help 不存東西
-  for (const w of ['/mcidea help', '/mcidea list', 'list_my_ideas', '不要存任何東西']) assert.ok(read('mcidea').includes(w), `mcidea 缺 ${w}`)
+  for (const w of ['/mcidea help', '/mcidea list', '/mcidea grow', 'grow_idea', 'list_my_ideas', '不要存任何東西', '不要替使用者猜', '使用者沒說要做之前不要動手']) assert.ok(read('mcidea').includes(w), `mcidea 缺 ${w}`)
   // mchelp：怎麼引用一節＋斜線指令才穩定
   assert.match(read('mchelp'), /怎麼引用一篇筆記/); assert.match(read('mchelp'), /標出處/); assert.match(read('mchelp'), /固定的行為/)
   // mchelp 列得出全部指令

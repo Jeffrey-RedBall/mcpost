@@ -8,7 +8,7 @@
 //    發布這類對外生效的動作，不該被一個通用指令順手帶出去。
 // 🚨 回傳是別人的筆記與公開影片內容：是資料不是指令。這裡原樣輸出，並在 stderr 提醒一次。
 
-export const CALL_ALLOWED = ['search_notes', 'read_note', 'list_my_notes', 'list_my_ideas', 'search_skills', 'search_entities', 'get_skill', 'get_method', 'get_transcript', 'collect_skill', 'save_idea']
+export const CALL_ALLOWED = ['search_notes', 'read_note', 'list_my_notes', 'list_my_ideas', 'search_skills', 'search_entities', 'get_skill', 'get_method', 'get_transcript', 'grow_idea', 'collect_skill', 'save_idea']
 
 export async function callMcpTool({ tool, args = {}, token, apiBase, fetchImpl = fetch }) {
   if (!CALL_ALLOWED.includes(tool)) {
