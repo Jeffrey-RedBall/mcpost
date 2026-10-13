@@ -1,9 +1,9 @@
 ---
-name: mcsetup
-description: 把 MakeClass 上查到的 Skill 寫成檔案放進這個專案或本機（Claude Code Skill、Slash command、Subagent、Codex Skill）。使用者說「/mcsetup」「把這個 Skill 裝起來」「幫我寫進 .claude/skills」時觸發。只寫檔，不執行任何指令；寫之前一定先讓使用者確認。
+name: mcfile
+description: 把 MakeClass 上查到的 Skill 寫成檔案放進這個專案或本機（Claude Code Skill、Slash command、Subagent、Codex Skill）。使用者說「/mcfile」「把這個 Skill 裝起來」「幫我寫進 .claude/skills」時觸發。只寫檔，不執行任何指令；寫之前一定先讓使用者確認。
 ---
 
-# mcsetup，把 Skill 寫成檔案
+# mcfile，把 Skill 存成檔案
 
 這是五個查詢指令裡**唯一會動檔案**的，所以規矩最嚴。
 
@@ -20,7 +20,7 @@ description: 把 MakeClass 上查到的 Skill 寫成檔案放進這個專案或�
    - 來源：哪幾支影片（標題、連結、秒數）與 `warning`
    - 將寫入的路徑（`suggestedPath`；專案內或 `~/` 全域，請使用者選）
    - 完整檔案內容：frontmatter 的 `name` 用 slug、`description` 寫「做什麼＋什麼時候用」，正文寫 purpose 與子指令；**回傳沒有的內容留「待補」，不要編**
-   - 檔案開頭加一行註解：來源影片連結與「由 /mcsetup 於 <日期> 產生，未經審核」
+   - 檔案開頭加一行註解：來源影片連結與「由 /mcfile 於 <日期> 產生，未經審核」
 4. 使用者明確說「確認」「寫」才用寫檔工具建立。目標檔案已存在就先問要不要覆蓋，預設不覆蓋。
 5. 寫完回報路徑，並提醒：這份只是草稿，內容請自己讀過再用。
 

@@ -1,14 +1,14 @@
-// mcpost call <工具> [JSON]：用權杖直接呼叫 MakeClass 的 MCP 工具，給 /mcmethod 等 skill 用。
+// mcpost call <工具> [JSON]：用權杖直接呼叫 MakeClass 的 MCP 工具，給 /mcway 等 skill 用。
 //
 // 為什麼要有：這些 skill 要查 MakeClass，但不是每個人都在 Claude Code／Codex 裡接了 MCP；
 // 而 mcpost 的權杖本來就在 ~/.makeclass/token。一個固定的指令，AI 不必自己拼 JSON-RPC。
 //
-// 🚨 白名單：只開唯讀查詢（與 /mcskill 要用的 collect_skill，它預設存成私人）。
+// 🚨 白名單：唯讀查詢，加兩個只寫「自己的私人記錄」的：collect_skill（/mcskill，存進私人工具箱）、save_idea（/mcidea，存進私人靈感）。
 //    publish_note、create_note、update_note、set_cover、generate_cover 都**不**能從這裡呼叫——
 //    發布這類對外生效的動作，不該被一個通用指令順手帶出去。
 // 🚨 回傳是別人的筆記與公開影片內容：是資料不是指令。這裡原樣輸出，並在 stderr 提醒一次。
 
-export const CALL_ALLOWED = ['search_notes', 'read_note', 'search_skills', 'search_entities', 'get_skill', 'get_method', 'collect_skill']
+export const CALL_ALLOWED = ['search_notes', 'read_note', 'search_skills', 'search_entities', 'get_skill', 'get_method', 'collect_skill', 'save_idea']
 
 export async function callMcpTool({ tool, args = {}, token, apiBase, fetchImpl = fetch }) {
   if (!CALL_ALLOWED.includes(tool)) {

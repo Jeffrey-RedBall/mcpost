@@ -730,7 +730,7 @@ async function warnIfOutdated() {
 
 /** skill symlink 現在指到哪（不存在回 null） */
 // 所有 skill：/mcpost 指向套件根目錄（相容舊版），其餘各自在 skills/<名稱>
-export const SKILL_NAMES = ['mcpost', 'mcslide', 'mcmethod', 'mcdetail', 'mcnote', 'mctool', 'mcsetup', 'mcskill', 'mchelp']
+export const SKILL_NAMES = ['mcpost', 'mcslide', 'mcway', 'mcdetail', 'mcview', 'mctool', 'mcfile', 'mcskill', 'mcidea', 'mchelp']
 
 async function cmdCall(argv) {
   let parsed
@@ -834,7 +834,7 @@ mcpost — 把開發對話或觀點文直接發到 MakeClass（不需要 clone �
   mcpost post [options]                   送一般文章 / 觀點文
   mcpost channels                         列出我的頻道（含 handle，供 --channel 用）
   mcpost install-skill                    幫 Claude Code 與 Codex 裝全部 /mc 指令（輸入 /mchelp 看說明）
-  mcpost call <工具> [JSON]               用權杖呼叫 MakeClass 的唯讀查詢（給 /mcmethod 等 skill 用）
+  mcpost call <工具> [JSON]               用權杖呼叫 MakeClass 的唯讀查詢（給 /mcway 等 skill 用）
   mcpost doctor                           檢查版本、權杖、skill 指到哪（環境不對時先跑這個）
 
 devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --no-images  --cover <圖片>  --attach <檔案>  --token <t>

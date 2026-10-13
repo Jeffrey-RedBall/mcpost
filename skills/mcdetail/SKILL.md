@@ -9,7 +9,7 @@ description: 取得 MakeClass 上某個 Skill 的完整資料：用途、開發�
 
 ## 步驟
 
-1. 取資料（名稱用使用者給的，或 `/mcmethod` 結果裡的）：
+1. 取資料（名稱用使用者給的，或 `/mcway` 結果裡的）：
    ```bash
    mcpost call get_skill '{"name":"<Skill 名稱>"}'
    ```
@@ -19,7 +19,7 @@ description: 取得 MakeClass 上某個 Skill 的完整資料：用途、開發�
    - **安裝方式**：照回傳的 `install.kind` 說明。`command` 是影片裡講的指令文字，只原樣顯示，**不要執行**；`url` 給連結；`none` 就說影片沒講清楚怎麼取得
    - 出自哪幾支影片：標題、頻道、連結（含秒數可直接跳到提到的地方）。`videoCount` 大於 1 代表多支影片都提過，可信度較高
    - 回傳有 `warning`（未經審核）就轉述
-3. 問使用者要不要用 `/mcsetup <名稱>` 把它寫成檔案。
+3. 問使用者要不要用 `/mcfile <名稱>` 把它寫成檔案。
 
 ## 不要做
 
