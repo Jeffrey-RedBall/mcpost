@@ -24,7 +24,7 @@ import { join, dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
 import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, IMG_MIME, MAX_IMAGE_BYTES, resolveCoverFile, setCover, resolveAttachFile, attachFiles } from './images.mjs'
-import { installApiFetch, localVersion, latestVersion, isOlder, nudgeIfOutdated, runUpgrade, upgradeArgs } from './update-check.mjs'
+import { installApiFetch, localVersion, latestVersion, isOlder, nudgeIfOutdated, runUpgrade, upgradeArgs, versionTimes, installedAt, versionLines } from './update-check.mjs'
 import { scanSecrets, maskClients, guardFields } from './guard.mjs'
 import { parseSize, runShot, SIZES } from './shot.mjs'
 import { callMcpTool, parseCallArgs, CALL_ALLOWED } from './mc-call.mjs'
@@ -760,13 +760,12 @@ function skillTarget(root, name) {
 async function cmdDoctor() {
   const mine = localVersion()
   console.log('mcpost doctor\n')
-  console.log(`套件版本   ${mine}`)
+  // 版本旁邊印「npm 發布時間」與「裝在這台的時間」：兩台機器、兩個人比對時，光看版號常對不上
+  const [latest, times] = await Promise.all([latestVersion(), versionTimes()])
+  const [l1, l2] = versionLines({ mine, latest, times, installed: installedAt(PKG_DIR) })
+  console.log(l1)
   console.log(`安裝位置   ${PKG_DIR}`)
-
-  const latest = await latestVersion()
-  if (latest === null) console.log('registry   （查不到，可能是離線）')
-  else if (isOlder(mine, latest)) console.log(`registry   ${latest}  ← 你落後了（打 mcpost upgrade）`)
-  else console.log(`registry   ${latest}  ✓`)
+  console.log(l2)
 
   console.log(`\n權杖       ${existsSync(TOKEN_FILE) || process.env.MAKECLASS_TOKEN ? '已設定' : '缺（跑 mcpost token）'}`)
 

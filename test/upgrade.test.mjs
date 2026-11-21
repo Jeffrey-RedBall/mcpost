@@ -71,3 +71,19 @@ test('CLI：mcpost upgrade --dry-run 只印指令不跑', async () => {
   assert.equal(r.code, 0, r.out)
   assert.match(r.out, /會跑：npm install -g mcpost@latest/)
 })
+
+// doctor 的版本行：發布時間與安裝時間
+import { versionLines, fmtTime } from '../bin/update-check.mjs'
+
+test('versionLines：有時間就印、沒有就省略；落後指向 upgrade；離線也有話說', () => {
+  const times = { '1.10.1': '2026-11-21T11:05:00Z', '1.10.2': '2026-11-22T01:00:00Z' }
+  const [a, b] = versionLines({ mine: '1.10.1', latest: '1.10.2', times, installed: '2026-11-21T11:10:00Z' })
+  assert.match(a, /^套件版本   1\.10\.1（npm 發布 \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}，裝在這台 \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}）$/)
+  assert.match(b, /^registry   1\.10\.2（npm 發布 .+）  ← 你落後了（打 mcpost upgrade）$/)
+  const [c, d] = versionLines({ mine: '1.10.2', latest: '1.10.2', times: {}, installed: null })
+  assert.equal(c, '套件版本   1.10.2')
+  assert.equal(d, 'registry   1.10.2  ✓')
+  assert.equal(versionLines({ mine: '1.0.0', latest: null })[1], 'registry   （查不到，可能是離線）')
+  assert.equal(fmtTime('not-a-date'), null)
+  assert.equal(fmtTime(null), null)
+})

@@ -13,7 +13,7 @@
 //    使用者是來發文、做簡報的，不是來等版本檢查的。
 // ⚠️ 只提醒、不自動升級：自動升級會在使用者不知情下改掉他電腦上的程式。
 // ─────────────────────────────────────────────────────────────────────────
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
@@ -82,6 +82,47 @@ export async function latestVersion() {
     if (!res.ok) return null
     return (await res.json()).version || null
   } catch { return null }
+}
+
+/** 每個版本在 npm 上的發布時間（ISO）。只有 doctor 用，不快取；查不到回 {} */
+export async function versionTimes() {
+  try {
+    const res = await fetch('https://registry.npmjs.org/mcpost', { signal: AbortSignal.timeout(4000) })
+    if (!res.ok) return {}
+    const { time = {} } = await res.json()
+    return time
+  } catch { return {} }
+}
+
+/** 這台機器什麼時候裝的：看套件 package.json 的 mtime（npm 安裝時會重寫這個檔） */
+export function installedAt(pkgDir) {
+  try { return statSync(join(pkgDir, 'package.json')).mtime.toISOString() } catch { return null }
+}
+
+/** 2026-11-21T11:05:03.000Z → 2026/11/21 19:05（本機時區，使用者比對用；秒數不重要） */
+export function fmtTime(iso) {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+/**
+ * doctor 的兩行版本資訊。純函式，方便測：
+ *   套件版本   1.10.1（npm 發布 2026/11/21 19:05，裝在這台 2026/11/21 19:10）
+ *   registry   1.10.2（npm 發布 2026/11/22 09:00）  ← 你落後了（打 mcpost upgrade）
+ */
+export function versionLines({ mine, latest, times = {}, installed = null }) {
+  const mineBits = [times[mine] && `npm 發布 ${fmtTime(times[mine])}`, installed && `裝在這台 ${fmtTime(installed)}`].filter(Boolean)
+  const l1 = `套件版本   ${mine}${mineBits.length ? `（${mineBits.join('，')}）` : ''}`
+  let l2
+  if (latest === null || latest === undefined) l2 = 'registry   （查不到，可能是離線）'
+  else {
+    const when = times[latest] ? `（npm 發布 ${fmtTime(times[latest])}）` : ''
+    l2 = `registry   ${latest}${when}  ${isOlder(mine, latest) ? '← 你落後了（打 mcpost upgrade）' : '✓'}`
+  }
+  return [l1, l2]
 }
 
 // ── 版本檢查的快取：一天查一次就夠，不要每個指令都打 registry ──

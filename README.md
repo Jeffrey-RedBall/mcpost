@@ -99,7 +99,7 @@ mcpost install-skill
 
 ```bash
 mcpost --version      # 只印版本
-mcpost doctor         # 版本、npm 上的最新版、權杖、skill 捷徑一次看
+mcpost doctor         # 版本（含 npm 發布時間、這台的安裝時間）、npm 最新版、權杖、skill 捷徑一次看
 ```
 
 **升級**
