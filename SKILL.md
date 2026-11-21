@@ -159,6 +159,9 @@ mcpost post --from https://makeclass.me/learn/<id> --take "我的觀點…"   # 
 `mcpost post`、`mcpost devlog`（1.5.0 起）、`mcslide`（1.5.0 起）都會自動把本地圖片上傳到 MakeClass 再換成 https 網址——站上正文**只顯示
 https 的圖片**（http 與 `data:` 一律不渲染），所以不先上傳的話一張都不會出現。
 不想自動上傳就加 `--no-images`。SVG 不收（可夾帶 script），請先轉成 PNG。
+
+**嵌 YouTube 影片**：正文裡**單獨一行只放影片網址**（`https://youtu.be/…`、`watch?v=`、`shorts/`），站上會變成播放器；帶 `t=90` 或 `t=1m30s` 從那秒開始。
+網址混在句子裡、`[文字](網址)` 文字不等於網址都只是連結。不要寫 `<iframe>`——正文不解析 HTML，寫了只會顯示成文字。
 devlog 補圖走一般內容端點，權杖除了 `devlog:write` 還要勾「發表內容」（`pusher:write`）。
 
 **封面與插圖**：規格與做法在上面 **2b**（每篇預設要做）。旗標是 `--cover 封面.jpg`（devlog 也可寫 front matter 的 `cover: ./封面.jpg`）；換已發出那篇的封面：`mcpost post --update <pushId> --cover 新封面.jpg`；補插圖就改正文再 `--update <pushId> --body 正文.md`。
