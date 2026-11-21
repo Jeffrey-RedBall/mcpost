@@ -1,0 +1,18 @@
+<!doctype html><html lang="zh-TW"><head><meta charset="utf-8">
+<link rel="stylesheet" href="base.css">
+<style>
+html,body{width:1200px;height:675px}
+.grid{position:absolute;left:60px;top:150px;right:60px;display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.card ul{margin:0;padding-left:22px}
+.card p{margin:14px 0 0;font-size:17px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
+</style></head><body><div class="bar"></div>
+<!-- 三欄分類卡。要矩陣、流程、時間軸就換 .grid 那塊；.hd／.sub／.ft 不動，整篇插圖才像一套。 -->
+<div class="hd">第 N 題：這張圖的結論寫成一句話</div>
+<div class="sub">副標：說明這張圖怎麼看</div>
+<div class="grid">
+  <div class="card"><h3>分類一</h3><ul><li>重點</li><li>重點</li></ul><p>一句補充</p></div>
+  <div class="card"><h3>分類二</h3><ul><li>重點</li><li>重點</li></ul><p>一句補充</p></div>
+  <div class="card"><h3>分類三</h3><ul><li>重點</li></ul><p>一句補充</p></div>
+</div>
+<div class="ft">作者／系列 ｜ by Claude</div>
+</body></html>

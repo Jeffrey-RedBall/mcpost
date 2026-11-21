@@ -25,6 +25,8 @@ import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
 import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, IMG_MIME, MAX_IMAGE_BYTES, resolveCoverFile, setCover, resolveAttachFile, attachFiles } from './images.mjs'
 import { installApiFetch, localVersion, latestVersion, isOlder, nudgeIfOutdated } from './update-check.mjs'
+import { scanSecrets, maskClients, guardFields } from './guard.mjs'
+import { parseSize, runShot, SIZES } from './shot.mjs'
 import { callMcpTool, parseCallArgs, CALL_ALLOWED } from './mc-call.mjs'
 
 const API_BASE = process.env.MAKECLASS_API_BASE
@@ -81,25 +83,7 @@ async function cmdToken(args) {
 // ─────────────────────────────────────────────────────────────────────────
 // devlog 子指令：DevLog v1 → Vibe Coding 專區（原 makeclass-push.mjs 邏輯）
 // ─────────────────────────────────────────────────────────────────────────
-const SECRET_PATTERNS = [
-  [/\bsk-[A-Za-z0-9_-]{16,}/, 'OpenAI/Anthropic 風格 API key'],
-  [/\bAIza[0-9A-Za-z_-]{30,}/, 'Google API key'],
-  [/\bgh[pousr]_[A-Za-z0-9]{20,}/, 'GitHub token'],
-  [/\bgithub_pat_[A-Za-z0-9_]{20,}/, 'GitHub fine-grained PAT'],
-  [/\bmck_[A-Za-z0-9]{20,}/, 'MakeClass access token'],
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, '私鑰'],
-  [/\b(?:postgres|postgresql|mysql|mongodb)(?:\+srv)?:\/\/[^\s:@]+:[^\s@]+@/, 'DB 連線字串（含密碼）'],
-  [/\bBearer\s+[A-Za-z0-9._-]{20,}/, 'Bearer token'],
-  [/^[A-Z][A-Z0-9_]{3,}=\S{16,}$/m, '.env 形式的變數賦值'],
-]
-
-const CLIENT_MASKS = [
-  [/CMC01|中華汽車/g, '<客戶A>'],
-  [/裕隆/g, '<客戶B>'],
-  [/TD-?VIP/gi, '<客戶C>'],
-  [/百思客/g, '<客戶D>'],
-  [/荷風/g, '<客戶E>'],
-]
+// SECRET_PATTERNS／CLIENT_MASKS／scanSecrets／maskClients 在 ./guard.mjs（devlog 與 post 共用）
 
 const REQUIRED = ['makeclass', 'title', 'question', 'category']
 
@@ -165,28 +149,6 @@ function validateDevlog(fm) {
   if (fm.category && fm.category !== 'vibecoding') errs.push(`category 目前只接受 "vibecoding"（目前：${fm.category}）`)
   if (!fm.source?.agent) errs.push('缺必填欄位：source.agent（claude-code / codex / cursor…）')
   return errs
-}
-
-function scanSecrets(text) {
-  const hits = []
-  const lines = text.split(/\r?\n/)
-  for (const [re, label] of SECRET_PATTERNS) {
-    lines.forEach((line, idx) => {
-      const probe = new RegExp(re.source, re.flags.replace('m', ''))
-      if (probe.test(line)) hits.push({ line: idx + 1, label, text: line.trim().slice(0, 80) })
-    })
-  }
-  return hits
-}
-
-function maskClients(text) {
-  let out = text
-  const hit = []
-  for (const [re, rep] of CLIENT_MASKS) {
-    if (re.test(out)) hit.push(rep)
-    out = out.replace(re, rep)
-  }
-  return { text: out, masked: [...new Set(hit)] }
 }
 
 function fingerprint(text) {
@@ -526,6 +488,19 @@ export function pushIdFrom(input) {
   return /^[a-z0-9]{20,40}$/i.test(s) ? s : null
 }
 
+/** post 的閘門：掃到機密就中止（沒有 --force）；客戶名預設遮，--no-mask-clients 關掉 */
+function guardOrDie(fields, args) {
+  const r = guardFields(fields, { mask: !args['no-mask-clients'] })
+  if (r.secrets.length) {
+    console.error(`\n🚨 偵測到 ${r.secrets.length} 處疑似機密，已中止（不會送出）：\n`)
+    r.secrets.forEach((h) => console.error(`   ${h.field} L${h.line}  [${h.label}]  ${h.text}`))
+    console.error('\n請先移除或改寫這幾行再送。這道閘門沒有 --force。\n')
+    process.exit(1)
+  }
+  if (r.masked.length) console.log(`已遮罩客戶名：${r.masked.join(', ')}（--no-mask-clients 可關閉）`)
+  return r.fields
+}
+
 async function cmdPost(argv) {
   const args = parseArgsLoose(argv)
   const token = resolveToken(typeof args.token === 'string' ? args.token : null)
@@ -537,7 +512,7 @@ async function cmdPost(argv) {
   if (typeof args.from === 'string') {
     const id = pushIdFrom(args.from)
     if (!id) die(`看不懂 --from：${args.from}`, '給 MakeClass 文章網址（https://makeclass.me/learn/<id>）或 pushId')
-    const take = readTake(args.take, args._)
+    const take = guardOrDie({ take: readTake(args.take, args._) }, args).take
     if (!take || take.trim().length < 10) die('缺少 --take（你的觀點，至少 10 個字）', '這篇 Post 的主角是你的想法；--take 可以是文字、檔案路徑或 -（從 stdin 讀）')
     console.log('\n交給站上的 AI 寫（約半分鐘，會使用 3 點）…')
     const r = await fetch(`${API_BASE}/v1/makeclass/pusher/${encodeURIComponent(id)}/to-post`, {
@@ -574,15 +549,24 @@ async function cmdPost(argv) {
 
   const channelId = typeof args.channel === 'string' ? await resolveChannel(args.channel) : null
 
-  const take = readTake(args.take, args._)
-  const articleBody = args._bodyText !== undefined ? args._bodyText : readTake(args.body, args.take ? [] : args._)
+  // 🚨 跟 devlog 同一道閘門：掃到機密直接中止、客戶名遮掉。1.10.0 以前 post 沒有這段，
+  //    標題、副標、正文、--take 都是原樣送出——「對外文章不得有客戶名」只靠 AI 自己記得。
+  const guarded = guardOrDie({
+    title,
+    subtitle: typeof args.subtitle === 'string' ? args.subtitle : undefined,
+    take: readTake(args.take, args._),
+    articleBody: args._bodyText !== undefined ? args._bodyText : readTake(args.body, args.take ? [] : args._),
+  }, args)
+  if (typeof args.subtitle === 'string') args.subtitle = guarded.subtitle
+  const take = guarded.take
+  const articleBody = guarded.articleBody
   // 正文裡的相對路徑要相對於「正文那個檔案」，不是相對於你現在站在哪個目錄
   const localImages = articleBody && !args['no-images'] ? findLocalImages(articleBody, bodyDir) : []
   // --cover／--attach 相對於你站的目錄；建草稿之前先檢查，不合格就不建
   const cover = typeof args.cover === 'string' ? coverOrDie(args.cover, process.cwd()) : null
   const attachments = attachmentsOrDie(args.attach, process.cwd())
   const body = {
-    title,
+    title: guarded.title,
     ...(typeof args.subtitle === 'string' ? { subtitle: args.subtitle } : {}),
     ...(typeof args.source === 'string' ? { sourceUrl: args.source } : {}),
     ...(channelId ? { channelId } : {}),
@@ -598,7 +582,7 @@ async function cmdPost(argv) {
   const updateId = typeof args.update === 'string' ? args.update.trim() : ''
   if (updateId) {
     const patch = {}
-    if (title) patch.title = title
+    if (title) patch.title = guarded.title
     if (typeof args.subtitle === 'string') patch.subtitle = args.subtitle
     if (articleBody) patch.articleBody = articleBody
     if (channelId) patch.channelId = channelId
@@ -680,6 +664,19 @@ async function cmdPost(argv) {
 // ─────────────────────────────────────────────────────────────────────────
 // channels：列出自己有哪些頻道（含 handle），發文前不用先去網頁查
 // ─────────────────────────────────────────────────────────────────────────
+async function cmdShot(argv) {
+  const args = parseArgsLoose(argv)
+  const html = args._[0]
+  if (!html) die('缺少 HTML 檔', 'mcpost shot cover.html --out cover.png --size cover|figure|1200x630')
+  let size
+  try { size = parseSize(args.size) } catch (e) { die(e.message) }
+  const out = typeof args.out === 'string' ? args.out : html.replace(/\.html?$/i, '') + '.png'
+  try {
+    await runShot({ html, out: resolvePath(out), size })
+  } catch (e) { die(e.message, e.hint) }
+  console.log(`✓ ${out}（${size[0]}×${size[1]}）——送出前自己開來看一次：文字沒被切、沒有一大塊空白`)
+}
+
 async function cmdChannels(argv) {
   const args = parseArgsLoose(argv)
   const token = resolveToken(typeof args.token === 'string' ? args.token : null)
@@ -835,6 +832,8 @@ mcpost — 把開發對話或觀點文直接發到 MakeClass（不需要 clone �
   mcpost channels                         列出我的頻道（含 handle，供 --channel 用）
   mcpost install-skill                    幫 Claude Code 與 Codex 裝全部 /mc 指令（輸入 /mchelp 看說明）
   mcpost call <工具> [JSON]               用權杖呼叫 MakeClass 的唯讀查詢（給 /mcway 等 skill 用）
+  mcpost shot <html> [--out x.png] [--size cover|figure|1200x630]
+                                          把一頁 HTML 截成封面／插圖 PNG（樣板在套件 templates/）
   mcpost doctor                           檢查版本、權杖、skill 指到哪（環境不對時先跑這個）
 
 devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --no-images  --cover <圖片>  --attach <檔案>  --token <t>
@@ -873,6 +872,8 @@ export { findLocalImages, rewriteImageUrls, IMG_MIME, MAX_IMAGE_BYTES }
 if (!process.env.MCPOST_NO_MAIN) {
 
 const [, , cmd, ...rest] = process.argv
+// `mcpost post --help` 以前會回「缺少 --title」——子指令後面接 --help 一律印用法
+if (cmd && !cmd.startsWith('-') && (rest.includes('--help') || rest.includes('-h'))) { printHelp(); process.exit(0) }
 switch (cmd) {
   case 'token': await cmdToken(rest); break
   // 這幾支跑完順手提醒版本落後（一天查一次，查不到就靜默略過）。
@@ -883,6 +884,7 @@ switch (cmd) {
   case 'install-skill': cmdInstallSkill(); await warnIfOutdated(); break
   case 'doctor': await cmdDoctor(); break
   case 'call': await cmdCall(rest); break
+  case 'shot': await cmdShot(rest); break
   case '--version': case '-v': console.log(localVersion() || '(讀不到版本)'); break
   case '--help': case '-h': case undefined: printHelp(); break
   default: die(`不認得的指令：${cmd}`, '跑 mcpost --help 看用法')

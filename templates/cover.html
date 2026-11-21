@@ -1,0 +1,18 @@
+<!doctype html><html lang="zh-TW"><head><meta charset="utf-8">
+<link rel="stylesheet" href="base.css">
+<style>
+html,body{width:1200px;height:630px}
+body{display:flex}
+.left{width:300px;background:var(--accent);position:relative}
+.left .tag{position:absolute;left:40px;top:60px;font-size:28px;letter-spacing:6px;color:var(--bg)}
+.left .big{position:absolute;left:0;right:0;bottom:50px;text-align:center;font-size:220px;line-height:1;font-weight:700;color:var(--bg);font-family:"Noto Serif TC",serif}
+.right{flex:1;padding:80px 70px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;background:var(--ink);color:var(--bg)}
+h1{font-size:68px;line-height:1.25;margin:0 0 28px;font-weight:700;font-family:"Noto Serif TC",serif}
+p{font-size:30px;line-height:1.5;margin:0;color:#d8d0c0}
+.ft{color:#d8d0c0}
+</style></head><body>
+<!-- 換三處就是一張新封面：左欄小字＋大字、標題、副標。系列文每篇改大字（編號）或 --accent 顏色。 -->
+<div class="left"><div class="tag">系列名</div><div class="big">7</div></div>
+<div class="right"><h1>標題寫在這裡，<br>最多兩行</h1><p>副標一句話，<br>說這篇解決什麼</p></div>
+<div class="ft">作者／系列 ｜ by Claude</div>
+</body></html>
