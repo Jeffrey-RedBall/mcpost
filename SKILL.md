@@ -86,12 +86,13 @@ visibility: unlisted
 - 沒給封面，審閱頁會請 AI 自動畫一張——常畫錯（標誌、人物、文字都會走樣）。所以一律自己做
 - 做法（1.10.1 起）：套件附樣板，複製出來改三處文字，再用 `mcpost shot` 截圖，不用自己拼 Chrome 指令：
   ```bash
-  cp -r "$(npm root -g)/mcpost/templates" ./img      # base.css、cover.html、figure.html
+  cp -r "$(npm root -g)/mcpost/templates" ./img      # base.css、cover.html、cover-riso.html、figure.html
   # 改 img/cover.html 的標題／副標／大字，然後：
   mcpost shot img/cover.html --out img/cover.png --size cover
   ```
   找不到 Chrome 會印出等價的手動指令（或 `export MCPOST_CHROME=<路徑>`）
 - 規格：`.jpg`／`.png`／`.webp`，9 MB 以內；只收本機檔，不收網址
+- 兩套版型：`cover.html`（色塊＋大字編號，系列文預設）、`cover-riso.html`（版畫雙色：紙底、兩個疊印色塊、兩個大字對撞，**給「A 對 B」「兩條路」這類比較題**）。不是比較題就不要用 riso，整站都是對撞字會失去意義
 - 系列文章用同一個版型、每篇換顏色或編號，一眼看得出是一套但不是同一篇
 - 同一題目有多個 AI 各答一版時，標題與封面都標作者（例：`（by Claude）`），不然並排分不出來
 
