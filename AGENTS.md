@@ -92,7 +92,7 @@ mcpost install-skill    # 建 symlink 到 ~/.claude/skills/
 - 預設 `visibility: unlisted`，不要自己改成 public
 - 掃到機密會直接中止，**沒有 --force**；被擋下就回去改寫那幾行
 - 封面：`--cover 封面.jpg`（1200×630，本機 jpg／png／webp）。**每篇都要自己做**，沒給的話網頁審閱頁會請 AI 自動畫、常畫錯
-- 重點插圖：**每篇預設 2–4 張**（1200×675，HTML→headless Chrome 截圖，與封面同色同字型），放在對應那一節標題下方 `![說明](./img/f1.png)`，工具自動上傳。只畫有形狀的內容（表格、流程、時間軸、分類），不放裝飾圖；送出前每張自己看一次
+- 重點插圖：**每篇預設 2–4 張**（1200×675；樣板 `cp -r "$(npm root -g)/mcpost/templates" ./img`，改完 `mcpost shot img/f1.html --size figure`，與封面同色同字型），放在對應那一節標題下方 `![說明](./img/f1.png)`，工具自動上傳。只畫有形狀的內容（表格、流程、時間軸、分類），不放裝飾圖；送出前每張自己看一次
 - 附件：`--attach 檔案`（可重複；影片、PPT、PDF、ZIP，單檔 500 MB）→ 出現在附件區。正文檔開頭可寫設定區（title／subtitle／cover／attach）
 ```
 

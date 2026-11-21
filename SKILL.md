@@ -84,8 +84,13 @@ visibility: unlisted
 **封面**（1200×630，分享到 LINE、FB 的比例）：
 
 - 沒給封面，審閱頁會請 AI 自動畫一張——常畫錯（標誌、人物、文字都會走樣）。所以一律自己做
-- 做法：寫一頁 1200×630 的 HTML（標題＋一個主視覺；中文用 Noto Serif TC／Noto Sans TC），headless Chrome 截圖：
-  `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars --window-size=1200,630 --virtual-time-budget=8000 --screenshot=cover.png file:///絕對路徑/cover.html`
+- 做法（1.10.1 起）：套件附樣板，複製出來改三處文字，再用 `mcpost shot` 截圖，不用自己拼 Chrome 指令：
+  ```bash
+  cp -r "$(npm root -g)/mcpost/templates" ./img      # base.css、cover.html、figure.html
+  # 改 img/cover.html 的標題／副標／大字，然後：
+  mcpost shot img/cover.html --out img/cover.png --size cover
+  ```
+  找不到 Chrome 會印出等價的手動指令（或 `export MCPOST_CHROME=<路徑>`）
 - 規格：`.jpg`／`.png`／`.webp`，9 MB 以內；只收本機檔，不收網址
 - 系列文章用同一個版型、每篇換顏色或編號，一眼看得出是一套但不是同一篇
 - 同一題目有多個 AI 各答一版時，標題與封面都標作者（例：`（by Claude）`），不然並排分不出來
@@ -94,7 +99,8 @@ visibility: unlisted
 
 - **挑什麼畫：有形狀的內容才畫。** 表格→矩陣或排行卡；流程／循環→箭頭串；時間計畫→時間軸；分類→分欄卡；一組數字→數字卡。
   純敘述的段落不畫，也不放裝飾圖
-- **怎麼做：跟封面同一套色與字型**（共用一份 `base.css`），一張 HTML 截一張圖，右下角印同一行小字（系列名／作者）。
+- **怎麼做：跟封面同一套色與字型**（同一份 `templates/base.css`，三個顏色變數換一套系列色），一張 HTML 截一張圖：
+  `cp img/figure.html img/f1.html` → 改內容 → `mcpost shot img/f1.html --size figure`（輸出同名 .png）。右下角 `.ft` 那行小字每張一樣（系列名／作者）。
   不要用 AI 生圖當重點插圖——文字會走樣，而且畫不出結構；只有需要照片時才用生圖
 - **放哪裡：** 放在對應那一節的標題正下方，`![一句話說明圖在講什麼](./img/f1.png)`，路徑相對於正文檔，工具會自動上傳換成 https
 - **送出前每張自己看一次**（用 Read 開圖）：文字沒被切、沒有一大塊空白、對比夠。截完沒看就送＝沒做

@@ -1,0 +1,15 @@
+/* mcpost 封面與插圖共用樣式。改這裡的三個顏色就能換一套系列色。 */
+:root { --bg: #f3eee4; --ink: #1f2a44; --accent: #c0392b; --muted: #6b6760; --line: #e2dbcd; }
+html, body { margin: 0; overflow: hidden; }
+body { background: var(--bg); color: var(--ink); font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; position: relative; }
+.serif { font-family: "Noto Serif TC", "Songti TC", serif; }
+.bar { position: absolute; left: 0; top: 0; width: 14px; height: 100%; background: var(--accent); }
+.hd { position: absolute; left: 60px; top: 44px; font-family: "Noto Serif TC", "Songti TC", serif; font-size: 40px; font-weight: 700; }
+.sub { position: absolute; left: 60px; top: 100px; font-size: 20px; color: var(--muted); }
+.ft { position: absolute; right: 48px; bottom: 28px; font-size: 16px; color: #9a948a; letter-spacing: 2px; }
+.card { background: #fff; border-radius: 16px; padding: 22px 24px; box-shadow: 0 2px 0 var(--line); }
+.card h3 { margin: 0 0 12px; font-size: 24px; color: var(--accent); font-family: "Noto Serif TC", serif; }
+.card li { font-size: 21px; line-height: 1.45; margin-bottom: 8px; }
+.pill { display: inline-block; background: var(--ink); color: var(--bg); padding: 6px 12px; border-radius: 8px; font-size: 19px; }
+.pill.hot { background: var(--accent); }
+.note { background: var(--ink); color: var(--bg); border-radius: 12px; padding: 14px 20px; font-size: 20px; }
