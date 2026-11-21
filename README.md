@@ -7,6 +7,15 @@ MakeClass 的後端 API 本來就是用 Token 驗證身分，跟原始碼存取�
 `@notionhq/client` 不需要 clone Notion 自己的原始碼一樣，這支套件把「發文」這個能力
 獨立出來發布。
 
+## 它做什麼
+
+- **把對話變成知識資產**：AI 輔助開發最貴的產出不是程式碼，是「為什麼這樣做」。`mcpost devlog` 把一輪有結論的問答整理成一篇可搜尋的文章，進 MakeClass 的 Vibe Coding 專區
+- **發一般文章**：`mcpost post` 發觀點文、筆記、教材；正文裡的本地圖片自動上傳、封面自己給、影片／PPT／PDF 掛成附件
+- **做簡報**：`mcslide` 把同一份內容變成站上可播的簡報，含講者備註、導讀配音、主題
+- **把站上的知識拿回終端機**：`/mcway`、`/mcview`、`/mctool`、`/mcdetail`、`/mcfile`、`/mcidea` 等指令讓 Claude Code／Codex 在開工前先查別人整理過的做法、Skill 與靈感
+- **安全預設**：送出前掃機密（掃到就中止，沒有 `--force`）、遮客戶名；送出後一律草稿＋unlisted，公開由人按
+- **不用 clone 主程式**：只靠一支 Personal Access Token，像 `@notionhq/client` 不需要 Notion 的原始碼
+
 ## 安裝
 
 ```bash
@@ -83,6 +92,41 @@ mcpost install-skill
 - 目標已存在且不是 symlink 會中止，不會蓋掉你的東西
 
 驗證：重開 Claude Code，輸入 `/mcpost`。
+
+## 版本與更新
+
+**看自己的版本**
+
+```bash
+mcpost --version      # 只印版本
+mcpost doctor         # 版本（含 npm 發布時間、這台的安裝時間）、npm 最新版、權杖、skill 捷徑一次看
+```
+
+**升級**
+
+```bash
+mcpost upgrade        # 等於 npm install -g mcpost@latest，升完打 mcpost doctor 確認
+```
+
+`mcpost upgrade --dry-run` 只印會跑的指令。一般升級不用重跑 `install-skill`（捷徑指到套件目錄，內容跟著換）；
+用 `npx`、或換了 Node 版本（fnm／nvm 切換）才要重跑。
+
+**怎麼知道有新版**
+
+- 每次跑 `mcpost devlog`／`post`／`channels` 結束時會查一次 npm（結果快取一天、查不到就靜默），落後就印一行提醒
+- `MakeClass` 後端也能在回應裡夾一句提醒（`clientNotice`），mcpost 與 mcslide 都會印出來
+- `MCPOST_NO_UPDATE_CHECK=1` 關掉檢查
+
+**自動更新**
+
+npm 全域套件本身不會自動更新，所以「自動」只能做到：由 mcpost 代打升級指令。
+
+```bash
+export MCPOST_AUTO_UPDATE=1   # 寫進 ~/.zshrc：偵測到新版就在該次指令跑完後自動 npm install -g mcpost@latest
+```
+
+這一次仍用舊版把事做完，升級在最後才跑，下一次就是新版。不想裝也可以每次 `npx mcpost@latest …`，永遠是最新版但每次要下載。
+團隊用的話，在專案的 `AGENTS.md`／`CLAUDE.md` 寫一句「開工先跑 `mcpost doctor`，落後就 `mcpost upgrade`」，AI 會替人做。
 
 ## 給 AI Agent 用
 
