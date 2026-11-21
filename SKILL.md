@@ -215,7 +215,9 @@ mcpost install-skill  # 讓 Claude Code 出現 /mcpost 指令
 
 ### 版本與更新
 
+- **同一個工作階段第一次用 mcpost 之前，先跑 `mcpost --version`**（本機、不連網、零成本）並在回報裡帶上版本。這份 SKILL 跟裝的套件是同一個版本，不會漂；這一步是讓使用者知道自己在哪一版
 - 看版本：`mcpost --version`；完整體檢：`mcpost doctor`
+- 1.10.2 起**不認得的選項會直接中止**並提示升級（以前靜默忽略——裝舊版照新說明打 `--attach`，附件會無聲消失）
 - 升級：`mcpost upgrade`（＝`npm install -g mcpost@latest`），升完 `mcpost doctor` 確認。一般升級不用重跑 `install-skill`
 - 提醒：devlog／post／channels 跑完會查一次 npm（一天一次），落後就印一行。看到就轉告使用者，**不要自己幫他升級**，除非他說要
 - 自動更新：使用者想要的話，在 `~/.zshrc` 加 `export MCPOST_AUTO_UPDATE=1`，偵測到新版會在該次指令結束後自動升級

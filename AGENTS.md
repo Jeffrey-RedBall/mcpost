@@ -83,6 +83,9 @@ mcpost install-skill    # 建 symlink 到 ~/.claude/skills/
 ```markdown
 ## 存開發知識到 MakeClass
 
+這段是照 **mcpost 1.10.2** 寫的。同一個工作階段第一次用之前先跑 `mcpost --version`（本機、不連網）；
+低於 1.10.2 就先 `mcpost upgrade`——舊版對不認得的選項會直接中止並提示升級，不會靜默吞掉。
+
 當使用者說「存進 MakeClass」「發成 blog」「寫成 mcpost」時：
 
 1. 把這次對話的提問與結論寫成 DevLog v1 格式的 .md（格式見下）
