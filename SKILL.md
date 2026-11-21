@@ -213,6 +213,13 @@ mcpost install-skill  # 讓 Claude Code 出現 /mcpost 指令
 
 不需要 clone MakeClass 主程式——這支套件跟 MakeClass 後端 API 一樣，只靠 Token 驗證身分。
 
+### 版本與更新
+
+- 看版本：`mcpost --version`；完整體檢：`mcpost doctor`
+- 升級：`mcpost upgrade`（＝`npm install -g mcpost@latest`），升完 `mcpost doctor` 確認。一般升級不用重跑 `install-skill`
+- 提醒：devlog／post／channels 跑完會查一次 npm（一天一次），落後就印一行。看到就轉告使用者，**不要自己幫他升級**，除非他說要
+- 自動更新：使用者想要的話，在 `~/.zshrc` 加 `export MCPOST_AUTO_UPDATE=1`，偵測到新版會在該次指令結束後自動升級
+
 ## 給其他 AI 平台
 
 Codex / Cursor 的接法見同目錄 [AGENTS.md](AGENTS.md)。

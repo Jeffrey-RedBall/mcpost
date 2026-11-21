@@ -36,6 +36,10 @@ Codex / Cursor 不需要，改成貼設定檔（本文後段）。
 
 零 npm 依賴、跨平台。有 Node 18+ 就能跑。
 
+**版本與更新**：`mcpost --version` 看版本、`mcpost doctor` 體檢、`mcpost upgrade` 升級（＝`npm install -g mcpost@latest`）。
+落後時 devlog／post／channels 跑完會印一行提醒（一天一次）；要自動升級在 shell 設 `MCPOST_AUTO_UPDATE=1`。
+建議在專案的 AGENTS.md 寫一句「開工先 `mcpost doctor`，落後就 `mcpost upgrade`」，讓 agent 替人做。
+
 ---
 
 ## Claude Code 用法

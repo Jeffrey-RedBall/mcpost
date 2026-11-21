@@ -59,7 +59,7 @@ mcpost doctor
 ```
 
 把結果用白話告訴他，照順序檢查：
-1. **版本落後**（registry 版本比較新）→ `npm update -g mcpost`
+1. **版本落後**（registry 版本比較新）→ `mcpost upgrade`（＝`npm install -g mcpost@latest`）；升完再跑一次 doctor
 2. **權杖缺**（「缺」）→ `mcpost token`，到 MakeClass 的「設定 → 權杖」產生一支
 3. **skill 沒安裝或指向別處**（「沒安裝」「指向別處」）→ `mcpost install-skill`
 4. 都正常還是不行 → 把 doctor 的輸出貼給使用者，請他到 MakeClass 回報；**不要**自己猜原因、也不要幫他改設定檔
@@ -67,3 +67,8 @@ mcpost doctor
 ## 前置
 
 `npm install -g mcpost`、`mcpost token`（設定權杖）、`mcpost install-skill`（安裝這些指令）。有問題跑 `mcpost doctor`。
+
+## 版本
+
+使用者問「我的 mcpost 幾版」「怎麼更新」時：`mcpost --version` 看版本、`mcpost upgrade` 升級。
+想自動更新：`~/.zshrc` 加 `export MCPOST_AUTO_UPDATE=1`，之後偵測到新版會在該次指令跑完後自動升級。
