@@ -14,6 +14,7 @@
 // ⚠️ 只提醒、不自動升級：自動升級會在使用者不知情下改掉他電腦上的程式。
 // ─────────────────────────────────────────────────────────────────────────
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -110,6 +111,32 @@ export async function nudgeIfOutdated() {
     let latest = cachedLatest()
     if (latest === undefined) { latest = await latestVersion(); putCachedLatest(latest) }
     if (!latest || !isOlder(mine, latest)) return
-    console.log(`\n⚠️  有新版 ${latest}（你的是 ${mine}）：在終端機打 npm install -g mcpost，再打 mcpost doctor 確認`)
+    if (process.env.MCPOST_AUTO_UPDATE === '1') {
+      // 使用者選了自動更新（opt-in）：這一次先用舊版把事做完，做完才升級，下一次就是新版
+      console.log(`\n⬆️  有新版 ${latest}（你的是 ${mine}），MCPOST_AUTO_UPDATE=1 → 自動升級中…`)
+      const code = await runUpgrade()
+      if (code !== 0) console.log('   自動升級失敗，請手動：mcpost upgrade')
+      return
+    }
+    console.log(`\n⚠️  有新版 ${latest}（你的是 ${mine}）：在終端機打 mcpost upgrade（等於 npm install -g mcpost@latest），再打 mcpost doctor 確認`)
   } catch { /* 提醒失敗不是錯誤 */ }
+}
+
+/** 升級用的 npm 參數——抽出來是為了測試與 `mcpost upgrade --dry-run` 能印出來 */
+export function upgradeArgs() {
+  return ['install', '-g', 'mcpost@latest']
+}
+
+/**
+ * 真的跑 npm 升級。npm 不會自己更新全域套件，所以「自動更新」只能做到這樣：
+ * 由 mcpost 代打 `npm install -g mcpost@latest`。MCPOST_NPM 可指定 npm 執行檔（測試、或 npm 不在 PATH）。
+ * 回傳 exit code，不丟例外——呼叫端自己決定要不要當錯誤。
+ */
+export function runUpgrade({ npm = process.env.MCPOST_NPM || (process.platform === 'win32' ? 'npm.cmd' : 'npm'), stdio = 'inherit' } = {}) {
+  return new Promise((ok) => {
+    let child
+    try { child = spawn(npm, upgradeArgs(), { stdio, shell: process.platform === 'win32' }) } catch { return ok(127) }
+    child.on('error', () => ok(127))
+    child.on('exit', (code) => ok(code ?? 1))
+  })
 }

@@ -24,7 +24,7 @@ import { join, dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
 import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, IMG_MIME, MAX_IMAGE_BYTES, resolveCoverFile, setCover, resolveAttachFile, attachFiles } from './images.mjs'
-import { installApiFetch, localVersion, latestVersion, isOlder, nudgeIfOutdated } from './update-check.mjs'
+import { installApiFetch, localVersion, latestVersion, isOlder, nudgeIfOutdated, runUpgrade, upgradeArgs } from './update-check.mjs'
 import { scanSecrets, maskClients, guardFields } from './guard.mjs'
 import { parseSize, runShot, SIZES } from './shot.mjs'
 import { callMcpTool, parseCallArgs, CALL_ALLOWED } from './mc-call.mjs'
@@ -664,6 +664,17 @@ async function cmdPost(argv) {
 // ─────────────────────────────────────────────────────────────────────────
 // channels：列出自己有哪些頻道（含 handle），發文前不用先去網頁查
 // ─────────────────────────────────────────────────────────────────────────
+async function cmdUpgrade(argv) {
+  const mine = localVersion(), latest = await latestVersion()
+  console.log(`目前 ${mine}，registry ${latest || '（查不到）'}`)
+  if (argv.includes('--dry-run')) { console.log(`會跑：npm ${upgradeArgs().join(' ')}`); return }
+  if (latest && !isOlder(mine, latest) && !argv.includes('--force')) { console.log('✓ 已是最新，不用升級（要重裝加 --force）'); return }
+  console.log(`\n$ npm ${upgradeArgs().join(' ')}\n`)
+  const code = await runUpgrade()
+  if (code !== 0) die(`npm 回 ${code}，升級沒有完成`, '權限問題的話照 npm 的訊息處理（例如 sudo，或改用 fnm／nvm 的 Node）；或手動：npm install -g mcpost@latest')
+  console.log('\n✓ 升級完成。接著打 mcpost doctor 確認版本與 skill 捷徑（一般升級捷徑不受影響；換過 Node 版本才要重跑 install-skill）')
+}
+
 async function cmdShot(argv) {
   const args = parseArgsLoose(argv)
   const html = args._[0]
@@ -754,7 +765,7 @@ async function cmdDoctor() {
 
   const latest = await latestVersion()
   if (latest === null) console.log('registry   （查不到，可能是離線）')
-  else if (isOlder(mine, latest)) console.log(`registry   ${latest}  ← 你落後了`)
+  else if (isOlder(mine, latest)) console.log(`registry   ${latest}  ← 你落後了（打 mcpost upgrade）`)
   else console.log(`registry   ${latest}  ✓`)
 
   console.log(`\n權杖       ${existsSync(TOKEN_FILE) || process.env.MAKECLASS_TOKEN ? '已設定' : '缺（跑 mcpost token）'}`)
@@ -835,6 +846,8 @@ mcpost — 把開發對話或觀點文直接發到 MakeClass（不需要 clone �
   mcpost shot <html> [--out x.png] [--size cover|figure|1200x630]
                                           把一頁 HTML 截成封面／插圖 PNG（樣板在套件 templates/）
   mcpost doctor                           檢查版本、權杖、skill 指到哪（環境不對時先跑這個）
+  mcpost upgrade [--dry-run] [--force]    升級到最新版（等於 npm install -g mcpost@latest）
+  mcpost --version                        看自己的版本
 
 devlog 選項：--dry-run  --yes  --no-mask-clients  --no-verify  --no-images  --cover <圖片>  --attach <檔案>  --token <t>
 post 選項：  --title <t>  --subtitle <t>  --source <url>  --take <文字|檔案|->
@@ -855,6 +868,7 @@ post 選項：  --title <t>  --subtitle <t>  --source <url>  --take <文字|檔�
 
 Token 讀取順序：--token > $MAKECLASS_TOKEN > ~/.makeclass/token
 環境變數 MAKECLASS_API_BASE 可覆寫 API 位址（預設正式站）
+版本與更新：mcpost --version 看版本；落後時每天提醒一次；MCPOST_AUTO_UPDATE=1 → 偵測到新版就自動升級；MCPOST_NO_UPDATE_CHECK=1 關掉檢查
 `)
 }
 
@@ -885,6 +899,7 @@ switch (cmd) {
   case 'doctor': await cmdDoctor(); break
   case 'call': await cmdCall(rest); break
   case 'shot': await cmdShot(rest); break
+  case 'upgrade': await cmdUpgrade(rest); break
   case '--version': case '-v': console.log(localVersion() || '(讀不到版本)'); break
   case '--help': case '-h': case undefined: printHelp(); break
   default: die(`不認得的指令：${cmd}`, '跑 mcpost --help 看用法')
