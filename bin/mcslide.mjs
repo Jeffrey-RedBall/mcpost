@@ -17,7 +17,8 @@ import { readFileSync } from "node:fs"
 import { resolve, dirname } from "node:path"
 import { homedir } from "node:os"
 import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, ImageUploadError, MAX_IMAGE_BYTES, resolveCoverFile, setCover, resolveAttachFile, attachFiles } from "./images.mjs"
-import { installApiFetch, nudgeIfOutdated } from "./update-check.mjs"
+import { installApiFetch, nudgeIfOutdated, localVersion } from "./update-check.mjs"
+import { unknownFlagMessage } from "./flags.mjs"
 import { resolveNarrationDir, checkNarrationCount, buildNarration, attachNarration, DEFAULT_GAP_SEC } from "./narration.mjs"
 import { resolveTheme, lecturePreview } from "./theme.mjs"
 
@@ -34,6 +35,7 @@ async function done() { await nudgeIfOutdated(); process.exit(0) }
 const die = (msg, hint) => { console.error(`✗ ${msg}${hint ? `\n  ${hint}` : ""}`); process.exit(1) }
 
 const argv = process.argv.slice(2)
+{ const bad = unknownFlagMessage(argv, "mcslide", { version: localVersion(), tool: "mcslide" }); if (bad) { console.error(`\n✗ ${bad.msg}\n  ${bad.hint}`); process.exit(1) } }
 const flag = (n) => argv.includes(n)
 const val = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : null }
 /** 同一個旗標的每一個值（--attach a --attach b） */
@@ -80,13 +82,15 @@ async function resolveChannel(handle) {
 // 權杖打得動 /to-slides（scope 需 pusher:write）。
 if (argv[0] === "from") {
     const id = argv[1]
-    if (!id || id.startsWith("--")) die("用法：mcslide from <pushId> [--pages 20]")
+    if (!id || id.startsWith("--")) die("用法：mcslide from <pushId> [--pages 20] [--focus \"只講定價那一段\"]")
     const pages = parseInt(val("--pages") || "15", 10)
-    console.log(`\n交給站上的 AI 產 ${pages} 頁（約一分鐘，會使用點數）…`)
+    // --focus：只講哪一段（後端 /to-slides 本來就吃 focus，1.10.1 以前這支沒送、網頁說明書卻寫了——靜默忽略的實例）
+    const focus = (val("--focus") || "").trim()
+    console.log(`\n交給站上的 AI 產 ${pages} 頁${focus ? `（聚焦：${focus}）` : ""}（約一分鐘，會使用點數）…`)
     const r = await fetch(`${API}/v1/makeclass/pusher/${id}/to-slides`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
-        body: JSON.stringify({ pages }),
+        body: JSON.stringify({ pages, ...(focus ? { focus } : {}) }),
     }).catch((e) => die(`連不上 API：${e.message}`))
     const j = await r.json().catch(() => ({}))
     if (!r.ok || !j.success) {
@@ -122,7 +126,7 @@ if (argv[0] === "narration") {
 }
 
 const src = file || argv.find((a) => a.endsWith(".md"))
-if (!src) die("用法：mcslide <檔.md> --title \"…\" [--source <pushId>] [--channel @handle] [--cover 封面.jpg] [--attach 檔案]… [--narration 音檔資料夾] [--dry-run]\n  或：mcslide from <pushId> [--pages 20]\n  或：mcslide narration <pushId> <音檔資料夾>（既有簡報補導讀）\n  權杖：先跑 mcpost token 設定一次")
+if (!src) die("用法：mcslide <檔.md> --title \"…\" [--source <pushId>] [--channel @handle] [--cover 封面.jpg] [--attach 檔案]… [--narration 音檔資料夾] [--dry-run]\n  或：mcslide from <pushId> [--pages 20] [--focus \"只講哪一段\"]\n  或：mcslide narration <pushId> <音檔資料夾>（既有簡報補導讀）\n  權杖：先跑 mcpost token 設定一次")
 const md = readFileSync(resolve(src), "utf8")
 const info = inspect(md)
 validate(md, info)

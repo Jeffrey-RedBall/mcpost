@@ -111,6 +111,8 @@ mcpost upgrade        # 等於 npm install -g mcpost@latest，升完打 mcpost d
 `mcpost upgrade --dry-run` 只印會跑的指令。一般升級不用重跑 `install-skill`（捷徑指到套件目錄，內容跟著換）；
 用 `npx`、或換了 Node 版本（fnm／nvm 切換）才要重跑。
 
+**說明比套件新的時候**：1.10.2 起，不認得的選項（例如舊版遇到 `--attach`）會直接中止並提示升級，不再靜默忽略。
+
 **怎麼知道有新版**
 
 - 每次跑 `mcpost devlog`／`post`／`channels` 結束時會查一次 npm（結果快取一天、查不到就靜默），落後就印一行提醒

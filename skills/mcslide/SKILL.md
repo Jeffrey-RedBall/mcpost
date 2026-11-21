@@ -27,6 +27,7 @@ description: 把一篇 Note／Post／教材／這次對話，做成 MakeClass �
 
 ```bash
 mcslide from cmu018xn60007f2hielnyic2w --pages 20
+mcslide from cmu018xn60007f2hielnyic2w --pages 12 --focus "只講定價那一段"   # 只講某一段（1.10.2 起）
 ```
 
 權杖打得動這支（scope 要有 **發表內容 pusher:write**），產出一律是 unlisted 草稿，代理發不出去。

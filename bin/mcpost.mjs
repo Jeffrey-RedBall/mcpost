@@ -27,6 +27,7 @@ import { findLocalImages, oversizedImages, uploadImages, rewriteImageUrls, Image
 import { installApiFetch, localVersion, latestVersion, isOlder, nudgeIfOutdated, runUpgrade, upgradeArgs, versionTimes, installedAt, versionLines } from './update-check.mjs'
 import { scanSecrets, maskClients, guardFields } from './guard.mjs'
 import { parseSize, runShot, SIZES } from './shot.mjs'
+import { unknownFlagMessage } from './flags.mjs'
 import { callMcpTool, parseCallArgs, CALL_ALLOWED } from './mc-call.mjs'
 
 const API_BASE = process.env.MAKECLASS_API_BASE
@@ -887,6 +888,8 @@ if (!process.env.MCPOST_NO_MAIN) {
 const [, , cmd, ...rest] = process.argv
 // `mcpost post --help` 以前會回「缺少 --title」——子指令後面接 --help 一律印用法
 if (cmd && !cmd.startsWith('-') && (rest.includes('--help') || rest.includes('-h'))) { printHelp(); process.exit(0) }
+// 不認得的旗標直接中止（1.10.2）：以前靜默忽略，裝舊版照新說明打 --attach／--cover 會無聲失敗
+{ const bad = unknownFlagMessage(rest, cmd, { version: localVersion() }); if (bad) die(bad.msg, bad.hint) }
 switch (cmd) {
   case 'token': await cmdToken(rest); break
   // 這幾支跑完順手提醒版本落後（一天查一次，查不到就靜默略過）。
