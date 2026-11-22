@@ -30,7 +30,7 @@ test('chromeArgs：尺寸、輸出、file:// 網址', () => {
 })
 
 test('templates 跟著套件走', () => {
-  for (const f of ['base.css', 'cover.html', 'figure.html']) assert.ok(existsSync(join(ROOT, 'templates', f)), f)
+  for (const f of ['base.css', 'cover.html', 'cover-riso.html', 'figure.html']) assert.ok(existsSync(join(ROOT, 'templates', f)), f)
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
   assert.ok(pkg.files.includes('templates'))
 })

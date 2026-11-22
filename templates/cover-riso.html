@@ -1,0 +1,27 @@
+<!doctype html><html lang="zh-TW"><head><meta charset="utf-8">
+<link rel="stylesheet" href="base.css">
+<style>
+/* 版畫雙色（riso）封面：紙底＋兩個半透明色塊疊印＋兩個大字對撞。
+   適合「A 對 B」「兩條路」這類比較題。換 --c1／--c2 就是另一篇；不是比較題就用 cover.html。 */
+:root{--paper:#F2EDE2;--ink2:#1B2420;--c1:#3F6B54;--c2:#AE382D;--muted2:#4A564F}
+html,body{width:1200px;height:630px}
+body{background:var(--paper);color:var(--ink2)}
+body:before{content:"";position:absolute;inset:0;background-image:radial-gradient(var(--ink2) .6px,transparent .7px);background-size:5px 5px;opacity:.12;mix-blend-mode:multiply;pointer-events:none}
+.blk{position:absolute;mix-blend-mode:multiply;border-radius:50%;opacity:.85}
+.blk.one{background:var(--c1);left:820px;top:-60px;width:520px;height:420px}
+.blk.two{background:var(--c2);left:900px;top:120px;width:420px;height:420px}
+.w1{position:absolute;left:70px;top:70px;font-family:"Noto Serif TC","Songti TC",serif;font-weight:900;font-size:150px;line-height:1;color:var(--c1);mix-blend-mode:multiply;letter-spacing:-.02em}
+.w2{position:absolute;left:300px;top:150px;font-family:Menlo,"SF Mono",monospace;font-weight:900;font-size:120px;line-height:1;color:var(--c2);mix-blend-mode:multiply;letter-spacing:-.04em}
+h1{position:absolute;left:70px;top:355px;margin:0;font-family:"Noto Serif TC","Songti TC",serif;font-size:50px;line-height:1.3;font-weight:700;width:820px}
+.sub{position:absolute;left:70px;top:505px;font-size:22px;color:var(--muted2);line-height:1.5}
+.tag{position:absolute;right:70px;top:70px;border:2px solid var(--ink2);padding:6px 14px;font-size:16px;letter-spacing:.3em;transform:rotate(3deg)}
+.ft{color:var(--muted2)}
+</style></head><body>
+<div class="blk one"></div><div class="blk two"></div>
+<!-- 換四處：兩個對撞的大字（.w1 襯線、.w2 等寬）、標題兩行、副標兩行。右上角 .tag 是一個詞的主題印章。 -->
+<div class="w1">甲</div><div class="w2">乙</div>
+<div class="tag">兩條路</div>
+<h1>標題寫在這裡，<br>最多兩行</h1>
+<div class="sub">副標一句話，<br>第二句說怎麼選</div>
+<div class="ft">BY CLAUDE</div>
+</body></html>
